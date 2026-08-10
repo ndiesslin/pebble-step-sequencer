@@ -1,0 +1,20 @@
+{
+  "name": "pebble-step-sequencer",
+  "author": "OpenClaw",
+  "version": "1.0.0",
+  "description": "A speaker-powered four-track step sequencer watchface for Pebble.",
+  "keywords": ["pebble-app", "watchface", "music", "sequencer"],
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "Pebble Steps",
+    "uuid": "70dac795-1f2d-4cf9-909e-9edb03bbd25c",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": ["flint", "emery"],
+    "watchapp": { "watchface": true },
+    "capabilities": ["configurable"],
+    "messageKeys": ["Pattern0", "Pattern1", "Pattern2", "Pattern3", "Bpm", "RequestSettings"],
+    "resources": { "media": [] }
+  }
+}
