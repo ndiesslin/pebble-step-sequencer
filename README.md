@@ -1,6 +1,16 @@
 # Pebble Steps
 
+![Pebble Steps — a music sequencer for your wrist](docs/banner.png)
+
 A four-track, 16-step music-sequencer watchface for speaker-equipped Pebble watches.
+
+## Publishing description
+
+Turn your Pebble into a pocket-sized groovebox. Pebble Steps is a playful four-track, 16-step sequencer watchface that lets you build looping C-major patterns directly on your wrist, then hear them through the watch's built-in speaker.
+
+Create rhythms with four pitched voices, move through the grid with the hardware buttons, adjust tempo from 60 to 240 BPM, and keep patterns saved between sessions. The Pebble mobile app also includes a full 64-step editor for composing from your phone. Designed for quick musical sketches, tiny loops, and joyful wrist-bound bleeps.
+
+**Requires a speaker-equipped Pebble:** Pebble 2 Duo or Pebble Time 2. Pebble SDK 4.9 or later is required.
 
 ## Supported hardware
 
@@ -11,6 +21,12 @@ Pebble Steps intentionally targets only the watches with a hardware speaker:
 
 It excludes legacy Pebble 2 (microphone only) and Pebble Round 2 (no speaker).
 It requires Pebble SDK 4.9 or newer because that is when the Speaker API arrived.
+
+## Screenshots
+
+| Pebble 2 Duo (Flint) | Pebble Time 2 (Emery) |
+| --- | --- |
+| ![Pebble Steps on Pebble 2 Duo](docs/screenshots/flint.png) | ![Pebble Steps on Pebble Time 2](docs/screenshots/emery.png) |
 
 ## Controls
 
