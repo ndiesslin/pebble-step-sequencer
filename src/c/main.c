@@ -62,11 +62,13 @@ static void advance_playhead(void *context) {
   s_playhead_timer = app_timer_register(step_duration_ms(), advance_playhead, NULL);
 }
 
-static void save_state(void) {
+static void save_state(uint8_t changed_tracks, bool bpm_changed) {
   for (uint8_t track = 0; track < TRACK_COUNT; track++) {
-    persist_write_int(PERSIST_PATTERN_BASE + track, s_pattern[track]);
+    if (changed_tracks & (1 << track)) {
+      persist_write_int(PERSIST_PATTERN_BASE + track, s_pattern[track]);
+    }
   }
-  persist_write_int(PERSIST_BPM, s_bpm);
+  if (bpm_changed) persist_write_int(PERSIST_BPM, s_bpm);
 }
 
 static bool play_pattern(void) {
@@ -166,7 +168,7 @@ static void draw_sequencer(Layer *layer, GContext *ctx) {
 
 static void select_click(ClickRecognizerRef recognizer, void *context) {
   s_pattern[s_cursor_track] ^= (1 << s_cursor_step);
-  save_state();
+  save_state(1 << s_cursor_track, false);
   redraw();
   if (!s_playing) speaker_play_tone(660, 35, 35, SpeakerWaveformSquare);
   else restart_playback();
@@ -195,15 +197,21 @@ static void down_click(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void up_long_click(ClickRecognizerRef recognizer, void *context) {
-  if (s_bpm < MAX_BPM) s_bpm += 5;
-  save_state(); redraw();
-  restart_playback();
+  if (s_bpm < MAX_BPM) {
+    s_bpm += 5;
+    save_state(0, true);
+    redraw();
+    restart_playback();
+  }
 }
 
 static void down_long_click(ClickRecognizerRef recognizer, void *context) {
-  if (s_bpm > MIN_BPM) s_bpm -= 5;
-  save_state(); redraw();
-  restart_playback();
+  if (s_bpm > MIN_BPM) {
+    s_bpm -= 5;
+    save_state(0, true);
+    redraw();
+    restart_playback();
+  }
 }
 
 static void back_click(ClickRecognizerRef recognizer, void *context) {
@@ -249,6 +257,20 @@ static void send_settings(void) {
   app_message_outbox_send();
 }
 
+static bool tuple_to_uint32(const Tuple *tuple, uint32_t *value) {
+  if (!tuple || !value || (tuple->type != TUPLE_UINT && tuple->type != TUPLE_INT)) return false;
+  if (tuple->type == TUPLE_INT) {
+    if (tuple->length == 1 && tuple->value->int8 >= 0) *value = tuple->value->int8;
+    else if (tuple->length == 2 && tuple->value->int16 >= 0) *value = tuple->value->int16;
+    else if (tuple->length == 4 && tuple->value->int32 >= 0) *value = tuple->value->int32;
+    else return false;
+  } else if (tuple->length == 1) *value = tuple->value->uint8;
+  else if (tuple->length == 2) *value = tuple->value->uint16;
+  else if (tuple->length == 4) *value = tuple->value->uint32;
+  else return false;
+  return true;
+}
+
 static void inbox_received(DictionaryIterator *iter, void *context) {
   if (dict_find(iter, MESSAGE_KEY_RequestSettings)) {
     send_settings();
@@ -260,21 +282,27 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     dict_find(iter, MESSAGE_KEY_Pattern2), dict_find(iter, MESSAGE_KEY_Pattern3),
   };
   Tuple *bpm = dict_find(iter, MESSAGE_KEY_Bpm);
-  bool changed = false;
+  uint8_t changed_tracks = 0;
+  bool bpm_changed = false;
   for (uint8_t track = 0; track < TRACK_COUNT; track++) {
-    if (pattern[track]) {
-      s_pattern[track] = pattern[track]->value->uint16;
-      changed = true;
+    uint32_t value;
+    if (tuple_to_uint32(pattern[track], &value) && value <= UINT16_MAX &&
+        s_pattern[track] != (uint16_t)value) {
+      s_pattern[track] = (uint16_t)value;
+      changed_tracks |= 1 << track;
     }
   }
-  if (bpm) {
-    uint32_t requested_bpm = bpm->value->uint32;
-    s_bpm = requested_bpm < MIN_BPM ? MIN_BPM :
-            (requested_bpm > MAX_BPM ? MAX_BPM : requested_bpm);
-    changed = true;
+  uint32_t requested_bpm;
+  if (tuple_to_uint32(bpm, &requested_bpm)) {
+    uint16_t clamped_bpm = requested_bpm < MIN_BPM ? MIN_BPM :
+                           (requested_bpm > MAX_BPM ? MAX_BPM : requested_bpm);
+    if (s_bpm != clamped_bpm) {
+      s_bpm = clamped_bpm;
+      bpm_changed = true;
+    }
   }
-  if (changed) {
-    save_state();
+  if (changed_tracks || bpm_changed) {
+    save_state(changed_tracks, bpm_changed);
     restart_playback();
     redraw();
   }

@@ -44,7 +44,7 @@ The four pitched tracks are C4, E4, G4, and C5. Each lit cell is a note; unlit c
 
 The companion app opens an editor from the watchface's **Settings** screen in the Pebble mobile app. It synchronizes the current watch pattern before opening, offers all 64 steps and tempo, and writes the saved values back to the watch.
 
-The configuration webview needs a public HTTPS host. The editor is included at `config/index.html`; deploy that directory (for example, through GitHub Pages) and replace `CONFIG_URL` near the top of `src/pkjs/index.js` with its final URL before building. No server or account credentials are needed by the editor.
+The configuration webview is deployed automatically by the GitHub Pages workflow from `config/` whenever that directory changes. The release build points to `https://ndiesslin-bot.github.io/pebble-step-sequencer/`. If the repository is transferred or renamed, update `CONFIG_URL` in `src/pkjs/index.js`, rebuild the `.pbw`, and verify the Settings round trip in the Pebble mobile app. No server or account credentials are needed by the editor.
 
 ## Build and install
 
@@ -67,3 +67,7 @@ The app builds one 16-step `SpeakerTrack` per voice and sends the four tracks to
 - [Pebble hardware capability matrix](https://developer.repebble.com/guides/tools-and-resources/hardware-information/)
 - [Pebble Speaker API](https://developer.repebble.com/docs/c/User_Interface/Speaker/)
 - [Pebble SDK installation guide](https://developer.repebble.com/sdk/)
+
+## License
+
+[MIT](LICENSE)

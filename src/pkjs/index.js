@@ -1,11 +1,12 @@
 /* global Pebble */
 var keys = require('message_keys');
 
-// Deploy config/index.html (for example with GitHub Pages), then replace this URL.
-var CONFIG_URL = 'https://YOUR-GITHUB-USERNAME.github.io/pebble-step-sequencer/config/';
+// GitHub Pages deployment is defined in .github/workflows/pages.yml.
+var CONFIG_URL = 'https://ndiesslin-bot.github.io/pebble-step-sequencer/';
 var savedSettings = {};
 var waitingToOpen = false;
 var fallbackTimer = null;
+var settingsRequestFailed = false;
 
 function validNumber(value, min, max, fallback) {
   value = Number(value);
@@ -26,8 +27,10 @@ function openConfiguration() {
   if (!waitingToOpen) return;
   waitingToOpen = false;
   if (fallbackTimer) clearTimeout(fallbackTimer);
+  var separator = CONFIG_URL.indexOf('?') === -1 ? '?' : '&';
   var state = encodeURIComponent(JSON.stringify(savedSettings));
-  Pebble.openURL(CONFIG_URL + '?state=' + state);
+  Pebble.openURL(CONFIG_URL + separator + 'state=' + state +
+    '&source=' + (settingsRequestFailed ? 'cached' : 'watch'));
 }
 
 function sendSettings(settings) {
@@ -49,11 +52,21 @@ Pebble.addEventListener('ready', function () {
 
 Pebble.addEventListener('showConfiguration', function () {
   waitingToOpen = true;
-  Pebble.sendAppMessage((function () {
+  settingsRequestFailed = false;
+  var request = (function () {
     var message = {}; message[keys.RequestSettings] = 1; return message;
-  }()));
-  // Still open from the phone's cached state if the watch is disconnected.
-  fallbackTimer = setTimeout(openConfiguration, 1200);
+  }());
+  Pebble.sendAppMessage(request, function () {
+    // Wait for the watch's state reply; use cache only if it does not arrive.
+    fallbackTimer = setTimeout(function () {
+      settingsRequestFailed = true;
+      openConfiguration();
+    }, 3000);
+  }, function (error) {
+    console.log('Unable to request watch settings: ' + JSON.stringify(error));
+    settingsRequestFailed = true;
+    openConfiguration();
+  });
 });
 
 Pebble.addEventListener('appmessage', function (event) {

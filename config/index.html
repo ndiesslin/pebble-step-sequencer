@@ -5,46 +5,45 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Pebble Steps</title>
   <style>
-    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #101318; color: #f7f8fa; }
-    body { margin: 0 auto; max-width: 38rem; padding: 1.25rem; }
-    h1 { margin: 0; } p { color: #bac1cc; }
-    .track { display: grid; grid-template-columns: 3rem repeat(16, minmax(0, 1fr)); gap: .2rem; align-items: center; margin: 1rem 0; }
-    .track label { font-weight: 700; } button { min-height: 2.35rem; border: 0; border-radius: .3rem; background: #303744; color: white; font-size: .7rem; }
-    button.active { background: #00a8ff; color: #07121a; } .track:nth-of-type(3) button.active { background: #fcaf17; }
-    .track:nth-of-type(4) button.active { background: #17b978; } .track:nth-of-type(5) button.active { background: #ed4b82; }
+    body { margin: 0 auto; max-width: 38rem; padding: 1.25rem; background: #101318; color: #f7f8fa; font-family: sans-serif; }
+    h1 { margin: 0; } p { color: #bac1cc; } .notice { min-height: 1.2em; font-size: .9rem; }
+    .track { display: table; width: 100%; border-spacing: .2rem; margin: 1rem 0; table-layout: fixed; }
+    .track label, .step { display: table-cell; } .track label { width: 3rem; font-weight: bold; vertical-align: middle; }
+    button { min-height: 2.35rem; width: 100%; border: 0; border-radius: .3rem; background: #303744; color: white; font-size: .7rem; }
+    .track-0 button.active { background: #d42d27; } .track-1 button.active { background: #e88916; }
+    .track-2 button.active { background: #168a57; } .track-3 button.active { background: #007caa; }
     .tempo { display: flex; align-items: center; gap: 1rem; margin: 1.5rem 0; } input { flex: 1; }
-    #save { width: 100%; background: #00a8ff; color: #07121a; font-weight: 800; }
+    #save { background: #00a8ff; color: #07121a; font-weight: bold; font-size: 1rem; }
   </style>
 </head>
 <body>
   <h1>Pebble Steps</h1><p>Edit all 16 steps, then save them to your watch.</p>
-  <main id="tracks"></main>
+  <p class="notice" id="notice"></p><div id="tracks"></div>
   <div class="tempo"><label for="bpm">Tempo <output id="tempo-value">120</output> BPM</label><input id="bpm" type="range" min="60" max="240" step="5" value="120"></div>
   <button id="save">Save to Pebble</button>
   <script>
-    const names = ['C4', 'E4', 'G4', 'C5'];
-    const returnTo = new URLSearchParams(location.search).get('return_to') || 'pebblejs://close#';
-    let state = {};
-    try { state = JSON.parse(new URLSearchParams(location.search).get('state') || '{}'); } catch (_) {}
-    const tracks = document.querySelector('#tracks');
-    names.forEach((name, track) => {
-      const row = document.createElement('section'); row.className = 'track';
-      const label = document.createElement('label'); label.textContent = name; row.append(label);
-      for (let step = 0; step < 16; step++) {
-        const button = document.createElement('button');
-        button.type = 'button'; button.textContent = step + 1; button.dataset.step = step;
-        button.classList.toggle('active', Boolean((state['Pattern' + track] || 0) & (1 << step));
-        button.onclick = () => button.classList.toggle('active'); row.append(button);
+    function getParam(name) { var q = location.search.substring(1).split('&'), i, pair; for (i = 0; i < q.length; i++) { pair = q[i].split('='); if (decodeURIComponent(pair[0]) === name) return decodeURIComponent((pair[1] || '').replace(/\+/g, ' ')); } return ''; }
+    function hasClass(node, name) { return (' ' + node.className + ' ').indexOf(' ' + name + ' ') !== -1; }
+    function toggleClass(node, name) { node.className = hasClass(node, name) ? node.className.replace(new RegExp('(^|\\s)' + name + '(?=\\s|$)', 'g'), ' ').replace(/^\s+|\s+$/g, '') : node.className + ' ' + name; }
+    var names = ['C4', 'E4', 'G4', 'C5'], state = {}, tracks = document.getElementById('tracks'), returnTo = getParam('return_to') || 'pebblejs://close#', track, step, row, label, cell, button;
+    try { state = JSON.parse(getParam('state') || '{}'); } catch (error) { state = {}; }
+    if (getParam('source') === 'cached') document.getElementById('notice').innerHTML = 'Watch unavailable — editing the last saved phone copy.';
+    for (track = 0; track < names.length; track++) {
+      row = document.createElement('div'); row.className = 'track track-' + track;
+      label = document.createElement('label'); label.innerHTML = names[track]; row.appendChild(label);
+      for (step = 0; step < 16; step++) {
+        cell = document.createElement('span'); cell.className = 'step'; button = document.createElement('button');
+        button.type = 'button'; button.innerHTML = step + 1; button.setAttribute('data-step', step);
+        if ((state['Pattern' + track] || 0) & (1 << step)) button.className = 'active';
+        button.onclick = function () { toggleClass(this, 'active'); }; cell.appendChild(button); row.appendChild(cell);
       }
-      tracks.append(row);
-    });
-    const bpm = document.querySelector('#bpm'), tempo = document.querySelector('#tempo-value');
-    bpm.value = state.Bpm || 120; tempo.value = bpm.value; bpm.oninput = () => tempo.value = bpm.value;
-    document.querySelector('#save').onclick = () => {
-      const result = { Bpm: Number(bpm.value) };
-      document.querySelectorAll('.track').forEach((row, track) => {
-        result['Pattern' + track] = [...row.querySelectorAll('button.active')].reduce((value, button) => value | (1 << button.dataset.step), 0);
-      });
+      tracks.appendChild(row);
+    }
+    var bpm = document.getElementById('bpm'), tempo = document.getElementById('tempo-value'); bpm.value = state.Bpm || 120; tempo.innerHTML = bpm.value;
+    bpm.onchange = bpm.oninput = function () { tempo.innerHTML = bpm.value; };
+    document.getElementById('save').onclick = function () {
+      var result = { Bpm: Number(bpm.value) }, rows = tracks.getElementsByTagName('div'), buttons, value, i, j;
+      for (i = 0; i < rows.length; i++) { buttons = rows[i].getElementsByTagName('button'); value = 0; for (j = 0; j < buttons.length; j++) if (hasClass(buttons[j], 'active')) value |= (1 << Number(buttons[j].getAttribute('data-step'))); result['Pattern' + i] = value; }
       location.href = returnTo + encodeURIComponent(JSON.stringify(result));
     };
   </script>
