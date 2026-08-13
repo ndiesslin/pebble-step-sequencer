@@ -44,7 +44,7 @@ The four pitched tracks are C4, E4, G4, and C5. Each lit cell is a note; unlit c
 
 The companion app opens an editor from the watchface's **Settings** screen in the Pebble mobile app. It synchronizes the current watch pattern before opening, offers all 64 steps and tempo, and writes the saved values back to the watch.
 
-The configuration webview is deployed automatically by the GitHub Pages workflow from `config/` whenever that directory changes. The release build points to `https://ndiesslin-bot.github.io/pebble-step-sequencer/`. If the repository is transferred or renamed, update `CONFIG_URL` in `src/pkjs/index.js`, rebuild the `.pbw`, and verify the Settings round trip in the Pebble mobile app. No server or account credentials are needed by the editor.
+The configuration webview is deployed automatically by the GitHub Pages workflow from `config/` whenever that directory changes. The release build points to `https://ndiesslin.github.io/pebble-step-sequencer/`. If the repository is transferred or renamed, update `CONFIG_URL` in `src/pkjs/index.js`, rebuild the `.pbw`, and verify the Settings round trip in the Pebble mobile app. No server or account credentials are needed by the editor.
 
 ## Build and install
 
