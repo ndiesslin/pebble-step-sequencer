@@ -52,14 +52,25 @@ function sendSettings(settings) {
   var message = {};
   for (var i = 0; i < 4; i++) message[keys['Pattern' + i]] = settings['Pattern' + i];
   for (var j = 0; j < 2; j++) message[keys['Synth' + j]] = settings['Synth' + j];
-  for (var k = 0; k < 2; k++) message[keys['SynthNotes' + k]] = settings['SynthNotes' + k];
   message[keys.Bpm] = settings.Bpm;
   message[keys.Transport] = settings.Transport;
-  Pebble.sendAppMessage(message, function () {
+  function remember() {
     savedSettings = settings;
     localStorage.setItem('pebbleStudioSettings', JSON.stringify(settings));
+  }
+  function sendPitch(track) {
+    var pitch = {}; pitch[keys['SynthNotes' + track]] = settings['SynthNotes' + track];
+    Pebble.sendAppMessage(pitch, function () {
+      if (track === 0) sendPitch(1); else remember();
+    }, function (error) {
+      // Core patterns are already saved; leave the last confirmed phone state intact on a pitch failure.
+      console.log('Unable to save synth pitch settings: ' + JSON.stringify(error));
+    });
+  }
+  Pebble.sendAppMessage(message, function () {
+    sendPitch(0);
   }, function (error) {
-    console.log('Unable to save sequencer settings: ' + JSON.stringify(error));
+    console.log('Unable to save sequencer patterns: ' + JSON.stringify(error));
   });
 }
 
