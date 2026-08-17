@@ -49,29 +49,23 @@ function openConfiguration() {
 
 function sendSettings(settings) {
   settings = normalise(settings);
-  var message = {};
-  for (var i = 0; i < 4; i++) message[keys['Pattern' + i]] = settings['Pattern' + i];
-  for (var j = 0; j < 2; j++) message[keys['Synth' + j]] = settings['Synth' + j];
-  message[keys.Bpm] = settings.Bpm;
-  message[keys.Transport] = settings.Transport;
+  var messages = [], i, message;
+  for (i = 0; i < 4; i++) { message = {}; message[keys['Pattern' + i]] = settings['Pattern' + i]; messages.push(message); }
+  for (i = 0; i < 2; i++) { message = {}; message[keys['Synth' + i]] = settings['Synth' + i]; messages.push(message); }
+  message = {}; message[keys.Bpm] = settings.Bpm; messages.push(message);
+  message = {}; message[keys.Transport] = settings.Transport; messages.push(message);
+  for (i = 0; i < 2; i++) { message = {}; message[keys['SynthNotes' + i]] = settings['SynthNotes' + i]; messages.push(message); }
   function remember() {
     savedSettings = settings;
     localStorage.setItem('pebbleStudioSettings', JSON.stringify(settings));
   }
-  function sendPitch(track) {
-    var pitch = {}; pitch[keys['SynthNotes' + track]] = settings['SynthNotes' + track];
-    Pebble.sendAppMessage(pitch, function () {
-      if (track === 0) sendPitch(1); else remember();
-    }, function (error) {
-      // Core patterns are already saved; leave the last confirmed phone state intact on a pitch failure.
-      console.log('Unable to save synth pitch settings: ' + JSON.stringify(error));
+  function sendNext(index) {
+    if (index >= messages.length) { remember(); return; }
+    Pebble.sendAppMessage(messages[index], function () { sendNext(index + 1); }, function (error) {
+      console.log('Unable to save sequencer setting ' + index + ': ' + JSON.stringify(error));
     });
   }
-  Pebble.sendAppMessage(message, function () {
-    sendPitch(0);
-  }, function (error) {
-    console.log('Unable to save sequencer patterns: ' + JSON.stringify(error));
-  });
+  sendNext(0);
 }
 
 Pebble.addEventListener('ready', function () {

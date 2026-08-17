@@ -523,15 +523,6 @@ static void send_settings(void) {
   dict_write_uint16(iter, MESSAGE_KEY_Pattern3, s_drum_pattern[3]);
   dict_write_uint16(iter, MESSAGE_KEY_Synth0, s_synth_pattern[0]);
   dict_write_uint16(iter, MESSAGE_KEY_Synth1, s_synth_pattern[1]);
-  char synth_notes[SYNTH_TRACK_COUNT][STEP_COUNT + 1];
-  for (uint8_t track = 0; track < SYNTH_TRACK_COUNT; track++) {
-    for (uint8_t step = 0; step < STEP_COUNT; step++) {
-      synth_notes[track][step] = '0' + s_synth_note_index[track][step];
-    }
-    synth_notes[track][STEP_COUNT] = '\0';
-  }
-  dict_write_cstring(iter, MESSAGE_KEY_SynthNotes0, synth_notes[0]);
-  dict_write_cstring(iter, MESSAGE_KEY_SynthNotes1, synth_notes[1]);
   dict_write_uint16(iter, MESSAGE_KEY_Bpm, s_bpm);
   dict_write_uint8(iter, MESSAGE_KEY_Transport, s_playing ? 1 : 0);
   dict_write_end(iter);
