@@ -660,7 +660,8 @@ static void init(void) {
   });
   window_set_click_config_provider(s_window, click_config_provider);
   app_message_register_inbox_received(inbox_received);
-  app_message_open(APP_MESSAGE_INBOX_SIZE_MINIMUM, APP_MESSAGE_OUTBOX_SIZE_MINIMUM);
+  // The phone editor sends six patterns, 32 pitch values, tempo, and transport together.
+  app_message_open(256, 256);
   window_stack_push(s_window, true);
 }
 

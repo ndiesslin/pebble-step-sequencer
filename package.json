@@ -1,6 +1,6 @@
 {
   "name": "pebble-step-sequencer",
-  "author": "OpenClaw",
+  "author": "PizzaMan",
   "version": "1.0.0",
   "description": "A speaker-powered drum and synth step sequencer for Pebble.",
   "keywords": ["pebble-app", "music", "sequencer", "drums", "synth"],
