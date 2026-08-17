@@ -1,5 +1,5 @@
 {
-  "name": "pebble-step-sequencer",
+  "name": "pebble-studio",
   "author": "PizzaMan",
   "version": "1.0.0",
   "description": "A speaker-powered drum and synth step sequencer for Pebble.",
@@ -7,7 +7,7 @@
   "private": true,
   "dependencies": {},
   "pebble": {
-    "displayName": "Pebble Steps",
+    "displayName": "Pebble Studio",
     "uuid": "70dac795-1f2d-4cf9-909e-9edb03bbd25c",
     "sdkVersion": "3",
     "enableMultiJS": true,

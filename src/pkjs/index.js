@@ -57,14 +57,14 @@ function sendSettings(settings) {
   message[keys.Transport] = settings.Transport;
   Pebble.sendAppMessage(message, function () {
     savedSettings = settings;
-    localStorage.setItem('pebbleStepsSettings', JSON.stringify(settings));
+    localStorage.setItem('pebbleStudioSettings', JSON.stringify(settings));
   }, function (error) {
     console.log('Unable to save sequencer settings: ' + JSON.stringify(error));
   });
 }
 
 Pebble.addEventListener('ready', function () {
-  try { savedSettings = JSON.parse(localStorage.getItem('pebbleStepsSettings')) || {}; } catch (e) {}
+  try { savedSettings = JSON.parse(localStorage.getItem('pebbleStudioSettings')) || {}; } catch (e) {}
 });
 
 Pebble.addEventListener('showConfiguration', function () {
@@ -96,7 +96,7 @@ Pebble.addEventListener('appmessage', function (event) {
     SynthNotes0: payload[keys.SynthNotes0], SynthNotes1: payload[keys.SynthNotes1],
     Bpm: payload[keys.Bpm], Transport: payload[keys.Transport]
   });
-  localStorage.setItem('pebbleStepsSettings', JSON.stringify(savedSettings));
+  localStorage.setItem('pebbleStudioSettings', JSON.stringify(savedSettings));
   openConfiguration();
 });
 

@@ -1,12 +1,12 @@
-# Pebble Steps
+# Pebble Studio
 
-![Pebble Steps — a music sequencer for your wrist](docs/banner.png)
+![Pebble Studio — a music sequencer for your wrist](docs/banner.png)
 
 A six-voice, 16-step music-sequencer app for speaker-equipped Pebble watches: a four-voice drum page plus a Bass/Lead synth page.
 
 ## Publishing description
 
-Turn your Pebble into a pocket-sized groovebox. Pebble Steps is a playful 16-step sequencer app that lets you build drum, bass, and lead loops directly on your wrist, then hear them through the watch's built-in speaker.
+Turn your Pebble into a pocket-sized groovebox. Pebble Studio is a playful 16-step sequencer app that lets you build drum, bass, and lead loops directly on your wrist, then hear them through the watch's built-in speaker.
 
 Create rhythms with four synthesized drum voices and two melodic voices, move through the grid with the hardware buttons, adjust tempo from 60 to 240 BPM, and keep patterns saved between sessions. The Pebble mobile app includes a full editor for composing from your phone. Designed for quick musical sketches, tiny loops, and joyful wrist-bound bleeps.
 
@@ -14,7 +14,7 @@ Create rhythms with four synthesized drum voices and two melodic voices, move th
 
 ## Supported hardware
 
-Pebble Steps intentionally targets only the watches with a hardware speaker:
+Pebble Studio intentionally targets only the watches with a hardware speaker:
 
 - Pebble 2 Duo (`flint`)
 - Pebble Time 2 (`emery`)
@@ -26,7 +26,7 @@ It requires Pebble SDK 4.9 or newer because that is when the Speaker API arrived
 
 | Pebble 2 Duo (Flint) | Pebble Time 2 (Emery) |
 | --- | --- |
-| ![Pebble Steps on Pebble 2 Duo](docs/screenshots/flint.png) | ![Pebble Steps on Pebble Time 2](docs/screenshots/emery.png) |
+| ![Pebble Studio on Pebble 2 Duo](docs/screenshots/flint.png) | ![Pebble Studio on Pebble Time 2](docs/screenshots/emery.png) |
 
 ## Controls
 
