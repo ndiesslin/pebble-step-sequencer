@@ -402,6 +402,12 @@ static void draw_sequencer(Layer *layer, GContext *ctx) {
       // GColorDarkGray can map to a lit pixel on Flint. Black makes a rest unambiguous.
       graphics_context_set_fill_color(ctx, enabled ? color : GColorBlack);
       graphics_fill_rect(ctx, GRect(x, y, cell_w, row_h - 5), 2, GCornersAll);
+      if (step > 0 && step % 4 == 0) {
+        // Four steps are one beat; the divider makes the 4/4 bar immediately scannable.
+        graphics_context_set_stroke_color(ctx, GColorLightGray);
+        graphics_context_set_stroke_width(ctx, 1);
+        graphics_draw_line(ctx, GPoint(x - 2, y), GPoint(x - 2, y + row_h - 6));
+      }
       if (!enabled) {
         graphics_context_set_stroke_color(ctx, GColorDarkGray);
         graphics_context_set_stroke_width(ctx, 1);

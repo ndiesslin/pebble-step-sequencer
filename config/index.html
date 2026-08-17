@@ -9,6 +9,7 @@
     h1 { margin: 0; } p { color: #bac1cc; } .notice { min-height: 1.2em; font-size: .9rem; }
     .track { display: table; width: 100%; border-spacing: .2rem; margin: 1rem 0; table-layout: fixed; }
     .track label, .step { display: table-cell; } .track label { width: 3rem; font-weight: bold; vertical-align: middle; }
+    .step.beat { border-left: 2px solid #8b95a5; padding-left: .12rem; }
     button { min-height: 2.35rem; width: 100%; border: 0; border-radius: .3rem; background: #303744; color: white; font-size: .7rem; }
     .track-0 button.active { background: #d42d27; } .track-1 button.active { background: #e88916; }
     .track-2 button.active { background: #168a57; } .track-3 button.active { background: #007caa; }
@@ -36,7 +37,7 @@
       row = document.createElement('div'); row.className = 'track track-' + track;
       label = document.createElement('label'); label.innerHTML = names[track]; row.appendChild(label);
       for (step = 0; step < 16; step++) {
-        cell = document.createElement('span'); cell.className = 'step'; button = document.createElement('button');
+        cell = document.createElement('span'); cell.className = 'step' + (step > 0 && step % 4 === 0 ? ' beat' : ''); button = document.createElement('button');
         button.type = 'button'; button.innerHTML = step + 1; button.setAttribute('data-step', step);
         if ((state[track < 4 ? 'Pattern' + track : 'Synth' + (track - 4)] || 0) & (1 << step)) button.className = 'active';
         button.onclick = function () { toggleClass(this, 'active'); }; cell.appendChild(button); row.appendChild(cell);
@@ -46,7 +47,7 @@
         row = document.createElement('div'); row.className = 'track pitch';
         label = document.createElement('label'); label.innerHTML = 'Pitch'; row.appendChild(label);
         for (step = 0; step < 16; step++) {
-          cell = document.createElement('span'); cell.className = 'step'; button = document.createElement('button');
+          cell = document.createElement('span'); cell.className = 'step' + (step > 0 && step % 4 === 0 ? ' beat' : ''); button = document.createElement('button');
           button.type = 'button'; button.setAttribute('data-track', track - 4); button.setAttribute('data-step', step);
           button.innerHTML = noteNames[track - 4][Number(synthNotes[track - 4][step])];
           button.onclick = function () { var t = Number(this.getAttribute('data-track')), s = Number(this.getAttribute('data-step')), n = (Number(synthNotes[t][s]) + 1) % noteNames[t].length; synthNotes[t][s] = n; this.innerHTML = noteNames[t][n]; };
