@@ -42,7 +42,7 @@ It requires Pebble SDK 4.9 or newer because that is when the Speaker API arrived
 | Hold Select | Start / stop playback |
 | Back | Exit the app |
 
-The Drum page uses one-shot 8 kHz PCM samples generated on the watch: red is a pitch-dropping Kick, orange is a noise-and-body Snare, green is a filtered-noise Hi-hat, and blue is a click-and-tone Rim shot. The Synth page adds a warm Bass and bright Lead. Double Up/Down changes the selected synth step through a compact C-major scale; the current note appears in the header. Playback uses a streamed PCM mixer, so all four drum voices and both synth voices play together. Each lit cell plays a hit or note; unlit cells are rests. Patterns and tempo persist on the watch. A yellow outline follows playback; the white outline is the edit cursor.
+The Drum page uses one-shot 8 kHz PCM samples generated on the watch: red is a pitch-dropping Kick, orange is a noise-and-body Snare, green is a filtered-noise Hi-hat, and blue is a click-and-tone Rim shot. The Synth page adds an audible C3–C4 Bass and C4–C5 Lead, deliberately shifted above the Pebble speaker's weak low end. Double Up/Down changes the selected synth step through a compact C-major scale; the current note appears in the header. Playback uses a streamed PCM mixer, so all four drum voices and both synth voices play together. Each lit cell plays a hit or note; unlit cells are rests. Patterns and tempo persist on the watch. A yellow outline follows playback; the white outline is the edit cursor.
 
 Every 16-step row is one 4/4 bar. A divider after steps 4, 8, and 12 marks the four beats on both the watch and phone editor.
 
