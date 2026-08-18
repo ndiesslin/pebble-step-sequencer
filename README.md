@@ -2,6 +2,8 @@
 
 ![Pebble Studio — a music sequencer for your wrist](docs/banner.png)
 
+![Pebble Studio app icon](docs/app-icon.png)
+
 A six-voice, 16-step music-sequencer app for speaker-equipped Pebble watches: a four-voice drum page plus a Bass/Lead synth page.
 
 ## Publishing description
