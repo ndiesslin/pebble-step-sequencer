@@ -118,12 +118,15 @@ static uint16_t envelope(uint16_t index, uint16_t count, uint16_t peak) {
 
 static void init_drum_samples(void) {
   uint16_t phase = 0;
-  uint16_t frequency = 180;
+  uint16_t frequency = 240;
   for (uint16_t i = 0; i < KICK_SAMPLE_COUNT; i++) {
-    uint16_t amplitude = envelope(i, KICK_SAMPLE_COUNT, 122);
-    s_kick_pcm[i] = clamp_sample(s_sine[phase >> 10] * amplitude / 127);
+    uint16_t amplitude = envelope(i, KICK_SAMPLE_COUNT, 127);
+    // Keep the body above the tiny speaker's weak sub-bass range, then add a beater attack.
+    int32_t body = s_sine[phase >> 10] * amplitude / 127;
+    int32_t click = i < 28 ? next_noise() * (28 - i) / 56 : 0;
+    s_kick_pcm[i] = clamp_sample(body + click);
     phase += frequency * 8;
-    frequency = frequency * 998 / 1000;  // 180 Hz attack falls toward a deep thump.
+    frequency = frequency * 999 / 1000;  // 240 Hz attack falls toward an audible ~115 Hz thump.
   }
 
   phase = 0;
@@ -209,7 +212,9 @@ static void render_mix(int8_t *buffer, uint16_t count) {
   for (uint16_t i = 0; i < count; i++) {
     int32_t mixed = 0;
     for (uint8_t track = 0; track < TRACK_COUNT; track++) {
-      if (s_drum_pattern[track] & (1 << step)) mixed += drum_sample(track, position);
+      if (s_drum_pattern[track] & (1 << step)) {
+        mixed += drum_sample(track, position) * (track == 0 ? 2 : 1);
+      }
     }
     for (uint8_t track = 0; track < SYNTH_TRACK_COUNT; track++) {
       if (s_synth_pattern[track] & (1 << step)) {
