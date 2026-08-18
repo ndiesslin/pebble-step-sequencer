@@ -63,7 +63,7 @@
     function renderTransport() { transport.innerHTML = playing ? 'Stop playback' : 'Start playback'; }
     renderTransport(); transport.onclick = function () { playing = !playing; saveToPebble(); };
     function saveToPebble() {
-      var result = { Bpm: Number(bpm.value), Transport: playing ? 1 : 0 }, rows = tracks.getElementsByTagName('div.track'), buttons, value, i, j, sequenceRow = 0;
+      var result = { Bpm: Number(bpm.value), Transport: playing ? 1 : 0 }, rows = tracks.getElementsByClassName('track'), buttons, value, i, j, sequenceRow = 0;
       for (i = 0; i < rows.length; i++) { if (hasClass(rows[i], 'pitch')) continue; buttons = rows[i].getElementsByTagName('button'); value = 0; for (j = 0; j < buttons.length; j++) if (hasClass(buttons[j], 'active')) value |= (1 << Number(buttons[j].getAttribute('data-step'))); result[sequenceRow < 4 ? 'Pattern' + sequenceRow : 'Synth' + (sequenceRow - 4)] = value; sequenceRow++; }
       result.SynthNotes0 = synthNotes[0].join(''); result.SynthNotes1 = synthNotes[1].join('');
       location.href = returnTo + encodeURIComponent(JSON.stringify(result));
