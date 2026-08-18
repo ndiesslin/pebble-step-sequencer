@@ -29,7 +29,7 @@ extern uint32_t MESSAGE_KEY_RequestSettings;
 #define PERSIST_SYNTH_NOTE_BASE 120
 #define PERSIST_BPM 110
 #define MIX_BUFFER_SAMPLES 160
-#define MIX_PRIME_BUFFERS 8
+#define MIX_PRIME_BUFFERS 2
 #define SYNTH_NOTE_COUNT 7
 
 static Window *s_window;
@@ -56,7 +56,9 @@ static const GColor s_track_colors[TRACK_COUNT] = {
   GColorRed, GColorOrange, GColorJaegerGreen, GColorVividCerulean
 };
 static const char *s_synth_names[SYNTH_TRACK_COUNT] = { "BASS", "LEAD" };
+#ifndef PBL_BW
 static const GColor s_synth_colors[SYNTH_TRACK_COUNT] = { GColorPurple, GColorVividCerulean };
+#endif
 static const char *s_synth_note_names[SYNTH_TRACK_COUNT][SYNTH_NOTE_COUNT] = {
   { "C4", "D4", "E4", "G4", "A4", "B4", "C5" },
   { "C5", "D5", "E5", "G5", "A5", "B5", "C6" },
@@ -346,18 +348,18 @@ static void draw_drum_icon(GContext *ctx, uint8_t track, int center_y) {
 }
 
 static void draw_synth_icon(GContext *ctx, uint8_t track, int center_y) {
-  GColor color = s_synth_colors[track];
+  GColor color = PBL_IF_BW_ELSE(GColorWhite, s_synth_colors[track]);
   graphics_context_set_stroke_color(ctx, color);
   graphics_context_set_stroke_width(ctx, 2);
-  if (track == 0) {  // Bass: low, rounded triangle wave.
-    graphics_draw_line(ctx, GPoint(3, center_y + 3), GPoint(6, center_y - 3));
-    graphics_draw_line(ctx, GPoint(6, center_y - 3), GPoint(10, center_y + 3));
-    graphics_draw_line(ctx, GPoint(10, center_y + 3), GPoint(15, center_y - 2));
-  } else {  // Lead: brighter saw wave.
-    graphics_draw_line(ctx, GPoint(3, center_y + 4), GPoint(7, center_y - 4));
-    graphics_draw_line(ctx, GPoint(7, center_y - 4), GPoint(7, center_y + 4));
-    graphics_draw_line(ctx, GPoint(7, center_y + 4), GPoint(12, center_y - 4));
-    graphics_draw_line(ctx, GPoint(12, center_y - 4), GPoint(12, center_y + 4));
+  if (track == 0) {  // Bass: speaker cabinet and woofer.
+    graphics_draw_rect(ctx, GRect(3, center_y - 5, 11, 11));
+    graphics_context_set_fill_color(ctx, color);
+    graphics_fill_circle(ctx, GPoint(8, center_y), 3);
+  } else {  // Lead: a clear musical note.
+    graphics_context_set_fill_color(ctx, color);
+    graphics_fill_circle(ctx, GPoint(6, center_y + 3), 3);
+    graphics_draw_line(ctx, GPoint(9, center_y + 3), GPoint(9, center_y - 6));
+    graphics_draw_line(ctx, GPoint(9, center_y - 6), GPoint(15, center_y - 4));
   }
 }
 
@@ -505,7 +507,7 @@ static void down_long_click(ClickRecognizerRef recognizer, void *context) {
 
 static void click_config_provider(void *context) {
   window_multi_click_subscribe(BUTTON_ID_SELECT, 1, 2, 450, true, select_click);
-  window_long_click_subscribe(BUTTON_ID_SELECT, 700, select_long_click, NULL);
+  window_long_click_subscribe(BUTTON_ID_SELECT, 500, select_long_click, NULL);
   window_multi_click_subscribe(BUTTON_ID_UP, 1, 2, 450, true, up_click);
   window_multi_click_subscribe(BUTTON_ID_DOWN, 1, 2, 450, true, down_click);
   window_long_click_subscribe(BUTTON_ID_UP, 700, up_long_click, NULL);
