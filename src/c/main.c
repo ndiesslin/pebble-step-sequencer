@@ -58,13 +58,13 @@ static const GColor s_track_colors[TRACK_COUNT] = {
 static const char *s_synth_names[SYNTH_TRACK_COUNT] = { "BASS", "LEAD" };
 static const GColor s_synth_colors[SYNTH_TRACK_COUNT] = { GColorPurple, GColorVividCerulean };
 static const char *s_synth_note_names[SYNTH_TRACK_COUNT][SYNTH_NOTE_COUNT] = {
-  { "C3", "D3", "E3", "G3", "A3", "B3", "C4" },
   { "C4", "D4", "E4", "G4", "A4", "B4", "C5" },
+  { "C5", "D5", "E5", "G5", "A5", "B5", "C6" },
 };
 // 16-bit phase increments at 8 kHz, kept above the Pebble speaker's weak low end.
 static const uint16_t s_synth_phase_increments[SYNTH_TRACK_COUNT][SYNTH_NOTE_COUNT] = {
-  { 1072, 1202, 1350, 1606, 1802, 2024, 2144 },
   { 2144, 2404, 2700, 3212, 3604, 4048, 4288 },
+  { 4288, 4808, 5400, 6424, 7208, 8096, 8576 },
 };
 
 static int8_t s_kick_pcm[KICK_SAMPLE_COUNT];
@@ -220,9 +220,11 @@ static void render_mix(int8_t *buffer, uint16_t count) {
       if (s_synth_pattern[track] & (1 << step)) {
         uint16_t phase = (uint32_t)position * s_synth_phase_increments[track]
           [s_synth_note_index[track][step]];
-        int16_t voice = track == 0 ? triangle_sample(phase) : (int16_t)(phase >> 8) - 128;
+        int16_t voice = track == 0
+          ? triangle_sample(phase) + (phase & 0x8000 ? 28 : -28)
+          : (int16_t)(phase >> 8) - 128;
         uint16_t attack = position < 32 ? position * 4 : 127;
-        mixed += voice * attack / 128 / 2;
+        mixed += voice * attack / 128;
       }
     }
     buffer[i] = clamp_sample(mixed / 3);
