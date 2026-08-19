@@ -96,6 +96,7 @@ static const int8_t s_sine[64] = {
 };
 
 static bool play_pattern(void);
+static bool tuple_to_uint32(const Tuple *tuple, uint32_t *value);
 
 static uint8_t active_track_count(void) {
   return s_page == PageDrums ? TRACK_COUNT : SYNTH_TRACK_COUNT;
@@ -617,6 +618,21 @@ static void window_unload(Window *window) { layer_destroy(s_canvas); }
 
 static void send_settings(void) {
   DictionaryIterator *iter;
+  if (app_message_outbox_begin(&iter) != APP_MSG_OK) return;
+  dict_write_uint16(iter, MESSAGE_KEY_Pattern0, s_drum_pattern[0]);
+  dict_write_uint16(iter, MESSAGE_KEY_Pattern1, s_drum_pattern[1]);
+  dict_write_uint16(iter, MESSAGE_KEY_Pattern2, s_drum_pattern[2]);
+  dict_write_uint16(iter, MESSAGE_KEY_Pattern3, s_drum_pattern[3]);
+  dict_write_uint16(iter, MESSAGE_KEY_Synth0, s_synth_pattern[0]);
+  dict_write_uint16(iter, MESSAGE_KEY_Synth1, s_synth_pattern[1]);
+  dict_write_uint16(iter, MESSAGE_KEY_Bpm, s_bpm);
+  dict_write_uint8(iter, MESSAGE_KEY_Transport, s_playing ? 1 : 0);
+  dict_write_end(iter);
+  app_message_outbox_send();
+}
+
+static void send_synth_notes(void) {
+  DictionaryIterator *iter;
   char synth_notes[SYNTH_TRACK_COUNT][STEP_COUNT + 1];
   for (uint8_t track = 0; track < SYNTH_TRACK_COUNT; track++) {
     for (uint8_t step = 0; step < STEP_COUNT; step++) {
@@ -625,16 +641,8 @@ static void send_settings(void) {
     synth_notes[track][STEP_COUNT] = '\0';
   }
   if (app_message_outbox_begin(&iter) != APP_MSG_OK) return;
-  dict_write_uint16(iter, MESSAGE_KEY_Pattern0, s_drum_pattern[0]);
-  dict_write_uint16(iter, MESSAGE_KEY_Pattern1, s_drum_pattern[1]);
-  dict_write_uint16(iter, MESSAGE_KEY_Pattern2, s_drum_pattern[2]);
-  dict_write_uint16(iter, MESSAGE_KEY_Pattern3, s_drum_pattern[3]);
-  dict_write_uint16(iter, MESSAGE_KEY_Synth0, s_synth_pattern[0]);
-  dict_write_uint16(iter, MESSAGE_KEY_Synth1, s_synth_pattern[1]);
   dict_write_cstring(iter, MESSAGE_KEY_SynthNotes0, synth_notes[0]);
   dict_write_cstring(iter, MESSAGE_KEY_SynthNotes1, synth_notes[1]);
-  dict_write_uint16(iter, MESSAGE_KEY_Bpm, s_bpm);
-  dict_write_uint8(iter, MESSAGE_KEY_Transport, s_playing ? 1 : 0);
   dict_write_end(iter);
   app_message_outbox_send();
 }
@@ -673,8 +681,12 @@ static bool tuple_to_synth_notes(const Tuple *tuple, uint8_t values[STEP_COUNT])
 }
 
 static void inbox_received(DictionaryIterator *iter, void *context) {
-  if (dict_find(iter, MESSAGE_KEY_RequestSettings)) {
-    send_settings();
+  Tuple *request_settings = dict_find(iter, MESSAGE_KEY_RequestSettings);
+  if (request_settings) {
+    uint32_t requested_part = 1;
+    tuple_to_uint32(request_settings, &requested_part);
+    if (requested_part == 2) send_synth_notes();
+    else send_settings();
     return;
   }
 

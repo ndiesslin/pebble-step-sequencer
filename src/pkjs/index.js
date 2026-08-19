@@ -8,6 +8,8 @@ var waitingToOpen = false;
 var fallbackTimer = null;
 var settingsRequestFailed = false;
 var settingsRequestAttempts = 0;
+var settingsRequestPart = 1;
+var pendingWatchSettings = null;
 var pendingSave = null;
 
 function validNumber(value, min, max, fallback) {
@@ -107,13 +109,15 @@ Pebble.addEventListener('showConfiguration', function () {
   waitingToOpen = true;
   settingsRequestFailed = false;
   settingsRequestAttempts = 0;
+  settingsRequestPart = 1;
+  pendingWatchSettings = null;
   requestWatchSettings();
 });
 
 function requestWatchSettings() {
   settingsRequestAttempts++;
   var request = (function () {
-    var message = {}; message[keys.RequestSettings] = 1; return message;
+    var message = {}; message[keys.RequestSettings] = settingsRequestPart; return message;
   }());
   function retryOrOpenCached(error) {
     if (!waitingToOpen) return;
@@ -145,6 +149,28 @@ Pebble.addEventListener('appmessage', function (event) {
     pendingSave.index++;
     pendingSave.attempt = 0;
     sendPendingSave();
+    return;
+  }
+  if (waitingToOpen && settingsRequestPart === 1 && payload[keys.Pattern0] !== undefined) {
+    if (fallbackTimer) clearTimeout(fallbackTimer);
+    pendingWatchSettings = {
+      Pattern0: payload[keys.Pattern0], Pattern1: payload[keys.Pattern1],
+      Pattern2: payload[keys.Pattern2], Pattern3: payload[keys.Pattern3],
+      Synth0: payload[keys.Synth0], Synth1: payload[keys.Synth1],
+      Bpm: payload[keys.Bpm], Transport: payload[keys.Transport]
+    };
+    settingsRequestPart = 2;
+    settingsRequestAttempts = 0;
+    requestWatchSettings();
+    return;
+  }
+  if (waitingToOpen && settingsRequestPart === 2 && payload[keys.SynthNotes0] !== undefined) {
+    if (fallbackTimer) clearTimeout(fallbackTimer);
+    pendingWatchSettings.SynthNotes0 = payload[keys.SynthNotes0];
+    pendingWatchSettings.SynthNotes1 = payload[keys.SynthNotes1];
+    savedSettings = normalise(pendingWatchSettings);
+    localStorage.setItem('pebbleStudioSettings', JSON.stringify(savedSettings));
+    openConfiguration();
     return;
   }
   if (payload[keys.Pattern0] === undefined) return;

@@ -9,6 +9,7 @@ assert(/SyncId/.test(pkjs) && /SyncStatus/.test(pkjs), 'phone saves must await w
 assert(/settingsRequestAttempts/.test(pkjs) && /requestWatchSettings/.test(pkjs), 'phone should retry live watch settings');
 assert(/dict_write_cstring\(iter, MESSAGE_KEY_SynthNotes0/.test(nativeCode), 'watch reply must include bass pitches');
 assert(/dict_write_cstring\(iter, MESSAGE_KEY_SynthNotes1/.test(nativeCode), 'watch reply must include lead pitches');
+assert(/send_synth_notes/.test(nativeCode) && /settingsRequestPart === 2/.test(pkjs), 'pitch state should use a separate safe-sized reply');
 assert(/cachedState/.test(config) && /disabled = true/.test(config), 'cached editor must be view-only');
 assert(/Four on the floor/.test(config) && /Clear all notes/.test(config), 'editor should offer presets and clearing');
 assert(config.indexOf('innerHTML') === -1, 'editor should use textContent for text updates');
