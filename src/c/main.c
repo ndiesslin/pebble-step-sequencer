@@ -49,6 +49,7 @@ static bool s_playing;
 static bool s_audio_error;
 static uint8_t s_playhead;
 static AppTimer *s_audio_timer;
+static AppTimer *s_settings_reply_timer;
 static uint8_t s_mix_step;
 static uint16_t s_mix_step_sample;
 static uint16_t s_mix_step_length;
@@ -62,6 +63,8 @@ static uint16_t s_playhead_step_length;
 static uint16_t s_playhead_step_remainder;
 static uint16_t s_playhead_last_ms;
 static uint16_t s_playhead_ms_remainder;
+static uint8_t s_pending_settings_part;
+static uint8_t s_settings_reply_retries;
 
 static const char *s_track_names[TRACK_COUNT] = { "KICK", "SNARE", "HAT", "RIM" };
 static const GColor s_track_colors[TRACK_COUNT] = {
@@ -97,6 +100,7 @@ static const int8_t s_sine[64] = {
 
 static bool play_pattern(void);
 static bool tuple_to_uint32(const Tuple *tuple, uint32_t *value);
+static void queue_settings_reply(uint8_t part);
 
 static uint8_t active_track_count(void) {
   return s_page == PageDrums ? TRACK_COUNT : SYNTH_TRACK_COUNT;
@@ -616,9 +620,9 @@ static void window_load(Window *window) {
 
 static void window_unload(Window *window) { layer_destroy(s_canvas); }
 
-static void send_settings(void) {
+static bool send_settings(void) {
   DictionaryIterator *iter;
-  if (app_message_outbox_begin(&iter) != APP_MSG_OK) return;
+  if (app_message_outbox_begin(&iter) != APP_MSG_OK) return false;
   dict_write_uint16(iter, MESSAGE_KEY_Pattern0, s_drum_pattern[0]);
   dict_write_uint16(iter, MESSAGE_KEY_Pattern1, s_drum_pattern[1]);
   dict_write_uint16(iter, MESSAGE_KEY_Pattern2, s_drum_pattern[2]);
@@ -628,10 +632,10 @@ static void send_settings(void) {
   dict_write_uint16(iter, MESSAGE_KEY_Bpm, s_bpm);
   dict_write_uint8(iter, MESSAGE_KEY_Transport, s_playing ? 1 : 0);
   dict_write_end(iter);
-  app_message_outbox_send();
+  return app_message_outbox_send() == APP_MSG_OK;
 }
 
-static void send_synth_notes(void) {
+static bool send_synth_notes(void) {
   DictionaryIterator *iter;
   char synth_notes[SYNTH_TRACK_COUNT][STEP_COUNT + 1];
   for (uint8_t track = 0; track < SYNTH_TRACK_COUNT; track++) {
@@ -640,11 +644,35 @@ static void send_synth_notes(void) {
     }
     synth_notes[track][STEP_COUNT] = '\0';
   }
-  if (app_message_outbox_begin(&iter) != APP_MSG_OK) return;
+  if (app_message_outbox_begin(&iter) != APP_MSG_OK) return false;
   dict_write_cstring(iter, MESSAGE_KEY_SynthNotes0, synth_notes[0]);
   dict_write_cstring(iter, MESSAGE_KEY_SynthNotes1, synth_notes[1]);
   dict_write_end(iter);
-  app_message_outbox_send();
+  return app_message_outbox_send() == APP_MSG_OK;
+}
+
+static void send_pending_settings_reply(void *context) {
+  s_settings_reply_timer = NULL;
+  if (!s_pending_settings_part) return;
+  bool queued = s_pending_settings_part == 2 ? send_synth_notes() : send_settings();
+  if (queued) {
+    s_pending_settings_part = 0;
+    s_settings_reply_retries = 0;
+  } else if (s_settings_reply_retries++ < 10) {
+    s_settings_reply_timer = app_timer_register(200, send_pending_settings_reply, NULL);
+  } else {
+    s_pending_settings_part = 0;
+  }
+}
+
+static void queue_settings_reply(uint8_t part) {
+  if (s_settings_reply_timer) {
+    app_timer_cancel(s_settings_reply_timer);
+    s_settings_reply_timer = NULL;
+  }
+  s_pending_settings_part = part;
+  s_settings_reply_retries = 0;
+  send_pending_settings_reply(NULL);
 }
 
 static void send_sync_ack(uint32_t sync_id) {
@@ -685,8 +713,7 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   if (request_settings) {
     uint32_t requested_part = 1;
     tuple_to_uint32(request_settings, &requested_part);
-    if (requested_part == 2) send_synth_notes();
-    else send_settings();
+    queue_settings_reply(requested_part == 2 ? 2 : 1);
     return;
   }
 
@@ -793,6 +820,7 @@ static void init(void) {
 static void deinit(void) {
   speaker_stop();
   cancel_audio_timer();
+  if (s_settings_reply_timer) app_timer_cancel(s_settings_reply_timer);
   speaker_set_finish_callback(NULL, NULL);
   app_message_deregister_callbacks();
   window_destroy(s_window);
