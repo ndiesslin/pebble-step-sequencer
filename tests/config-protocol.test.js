@@ -5,7 +5,7 @@ var pkjs = fs.readFileSync('src/pkjs/index.js', 'utf8');
 var nativeCode = fs.readFileSync('src/c/main.c', 'utf8');
 var config = fs.readFileSync('config/index.html', 'utf8');
 
-assert(/SyncId/.test(pkjs) && /SyncStatus/.test(pkjs), 'phone saves must await watch acknowledgements');
+assert(/sendNext\(index, attempt\)/.test(pkjs) && /120/.test(pkjs), 'phone should pace every saved field instead of blocking on an acknowledgement');
 assert(/settingsSource = 'phone'/.test(pkjs), 'Settings should open immediately from the saved phone copy');
 assert(/defaultSettings/.test(pkjs), 'phone editor should start with the app defaults rather than blank patterns');
 assert(/Save &amp; Close/.test(config), 'editor should offer one explicit close-to-save action');

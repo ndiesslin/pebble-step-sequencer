@@ -9,7 +9,6 @@ var fallbackTimer = null;
 var settingsRequestFailed = false;
 var settingsRequestAttempts = 0;
 var settingsSource = 'phone';
-var pendingSave = null;
 var settingsNotice = '';
 
 var defaultSettings = {
@@ -67,43 +66,6 @@ function reopenEditor(notice) {
   openConfiguration();
 }
 
-function finishPendingSave() {
-  savedSettings = pendingSave.settings;
-  localStorage.setItem('pebbleStudioSettings', JSON.stringify(savedSettings));
-  console.log('Pebble Studio settings saved and acknowledged by watch.');
-  pendingSave = null;
-}
-
-function retryPendingSave(reason) {
-  var save = pendingSave;
-  if (!save) return;
-  if (save.timer) { clearTimeout(save.timer); save.timer = null; }
-  if (save.attempt++ >= 2) {
-    console.log('Unable to save Pebble Studio setting ' + save.index + ': ' + (reason || 'acknowledgement timed out'));
-    pendingSave = null;
-    return;
-  }
-  console.log('Retrying Pebble Studio setting ' + save.index + ': ' + (reason || 'acknowledgement timed out'));
-  sendPendingSave();
-}
-
-function sendPendingSave() {
-  var save = pendingSave;
-  if (!save) return;
-  if (save.index >= save.messages.length) { finishPendingSave(); return; }
-  var expectedIndex = save.index;
-  var payload = save.messages[save.index];
-  payload[keys.SyncId] = save.syncId + save.index;
-  Pebble.sendAppMessage(payload, function () {
-    if (pendingSave !== save || save.index !== expectedIndex) return;
-    save.timer = setTimeout(function () {
-      if (pendingSave === save && save.index === expectedIndex) retryPendingSave();
-    }, 2500);
-  }, function (error) {
-    if (pendingSave === save && save.index === expectedIndex) retryPendingSave(JSON.stringify(error));
-  });
-}
-
 function sendSettings(settings) {
   settings = normalise(settings);
   var messages = [], i, message;
@@ -112,9 +74,26 @@ function sendSettings(settings) {
   message = {}; message[keys.Bpm] = settings.Bpm; messages.push(message);
   for (i = 0; i < 2; i++) { message = {}; message[keys['SynthNotes' + i]] = settings['SynthNotes' + i]; messages.push(message); }
   message = {}; message[keys.Transport] = settings.Transport; messages.push(message);
-  pendingSave = { settings: settings, messages: messages, index: 0, attempt: 0,
-    syncId: Date.now() % 2147480000, timer: null };
-  sendPendingSave();
+  function sendNext(index, attempt) {
+    if (index >= messages.length) {
+      savedSettings = settings;
+      localStorage.setItem('pebbleStudioSettings', JSON.stringify(savedSettings));
+      console.log('Pebble Studio settings sent to watch.');
+      return;
+    }
+    Pebble.sendAppMessage(messages[index], function () {
+      // Small pacing avoids filling the watch's one-message inbox while it persists each field.
+      setTimeout(function () { sendNext(index + 1, 0); }, 120);
+    }, function (error) {
+      if (attempt < 2) {
+        console.log('Retrying Pebble Studio setting ' + index + ': ' + JSON.stringify(error));
+        setTimeout(function () { sendNext(index, attempt + 1); }, 200);
+      } else {
+        console.log('Unable to save Pebble Studio setting ' + index + ': ' + JSON.stringify(error));
+      }
+    });
+  }
+  sendNext(0, 0);
 }
 
 Pebble.addEventListener('ready', function () {
@@ -135,15 +114,6 @@ Pebble.addEventListener('showConfiguration', function () {
 
 Pebble.addEventListener('appmessage', function (event) {
   var payload = event.payload;
-  if (pendingSave && payload[keys.SyncStatus] === 1 &&
-      payload[keys.SyncId] === pendingSave.syncId + pendingSave.index) {
-    if (pendingSave.timer) clearTimeout(pendingSave.timer);
-    pendingSave.timer = null;
-    pendingSave.index++;
-    pendingSave.attempt = 0;
-    sendPendingSave();
-    return;
-  }
   if (payload[keys.Pattern0] === undefined) return;
   savedSettings = normalise({
     Pattern0: payload[keys.Pattern0], Pattern1: payload[keys.Pattern1],
