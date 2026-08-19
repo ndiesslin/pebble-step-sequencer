@@ -49,7 +49,12 @@ static uint8_t s_playhead;
 static AppTimer *s_audio_timer;
 static uint8_t s_mix_step;
 static uint16_t s_mix_step_sample;
+static uint16_t s_mix_step_length;
+static uint16_t s_mix_step_remainder;
 static int8_t s_mix_buffer[MIX_BUFFER_SAMPLES];
+static uint16_t s_pending_offset;
+static uint16_t s_pending_length;
+static uint8_t s_empty_write_count;
 
 static const char *s_track_names[TRACK_COUNT] = { "KICK", "SNARE", "HAT", "RIM" };
 static const GColor s_track_colors[TRACK_COUNT] = {
@@ -162,10 +167,6 @@ static void init_drum_samples(void) {
 
 }
 
-static uint16_t step_duration_ms(void) {
-  return 60000 / s_bpm / 4;
-}
-
 static void redraw(void) { layer_mark_dirty(s_canvas); }
 
 static void cancel_audio_timer(void) {
@@ -190,8 +191,16 @@ static void save_state(uint8_t changed_drum_tracks, uint8_t changed_synth_tracks
   if (bpm_changed) persist_write_int(PERSIST_BPM, s_bpm);
 }
 
-static uint16_t step_samples(void) {
-  return PCM_SAMPLE_RATE * step_duration_ms() / 1000;
+static uint16_t next_step_samples(uint16_t *remainder) {
+  const uint16_t denominator = s_bpm * 4;
+  const uint32_t numerator = PCM_SAMPLE_RATE * 60;
+  uint16_t samples = numerator / denominator;
+  *remainder += numerator % denominator;
+  if (*remainder >= denominator) {
+    (*remainder -= denominator);
+    samples++;
+  }
+  return samples;
 }
 
 static int16_t triangle_sample(uint16_t phase) {
@@ -207,10 +216,20 @@ static int16_t drum_sample(uint8_t track, uint16_t offset) {
   return 0;
 }
 
+static int8_t finalize_mix(int32_t mixed) {
+  // Keep the current punch at normal levels, but smoothly compress rare six-voice peaks.
+  int32_t sample = mixed / 3;
+  int32_t sign = sample < 0 ? -1 : 1;
+  int32_t magnitude = sample < 0 ? -sample : sample;
+  if (magnitude > 96) magnitude = 96 + (magnitude - 96) * 31 / (31 + magnitude - 96);
+  return clamp_sample(sign * magnitude);
+}
+
 static void render_mix(int8_t *buffer, uint16_t count) {
   uint8_t step = s_mix_step;
   uint16_t position = s_mix_step_sample;
-  const uint16_t samples_per_step = step_samples();
+  uint16_t step_length = s_mix_step_length;
+  uint16_t remainder = s_mix_step_remainder;
   for (uint16_t i = 0; i < count; i++) {
     int32_t mixed = 0;
     for (uint8_t track = 0; track < TRACK_COUNT; track++) {
@@ -226,29 +245,32 @@ static void render_mix(int8_t *buffer, uint16_t count) {
           ? triangle_sample(phase) + (phase & 0x8000 ? 28 : -28)
           : (int16_t)(phase >> 8) - 128;
         uint16_t attack = position < 32 ? position * 4 : 127;
-        mixed += voice * attack / 128;
+        uint16_t release = position + 16 >= step_length ? (step_length - position) * 8 : 127;
+        uint16_t envelope_level = attack < release ? attack : release;
+        mixed += voice * envelope_level / 127;
       }
     }
-    buffer[i] = clamp_sample(mixed / 3);
+    buffer[i] = finalize_mix(mixed);
     position++;
-    if (position >= samples_per_step) {
+    if (position >= step_length) {
       position = 0;
       step = (step + 1) % STEP_COUNT;
+      step_length = next_step_samples(&remainder);
     }
   }
 }
 
 static void advance_mix_position(uint16_t count) {
-  const uint16_t samples_per_step = step_samples();
   bool playhead_changed = false;
   while (count > 0) {
-    uint16_t remaining = samples_per_step - s_mix_step_sample;
+    uint16_t remaining = s_mix_step_length - s_mix_step_sample;
     uint16_t advance = count < remaining ? count : remaining;
     s_mix_step_sample += advance;
     count -= advance;
-    if (s_mix_step_sample >= samples_per_step) {
+    if (s_mix_step_sample >= s_mix_step_length) {
       s_mix_step_sample = 0;
       s_mix_step = (s_mix_step + 1) % STEP_COUNT;
+      s_mix_step_length = next_step_samples(&s_mix_step_remainder);
       s_playhead = s_mix_step;
       playhead_changed = true;
     }
@@ -256,13 +278,52 @@ static void advance_mix_position(uint16_t count) {
   if (playhead_changed) redraw();
 }
 
+static void prepare_pending_audio(void) {
+  if (s_pending_length != 0) return;
+  render_mix(s_mix_buffer, MIX_BUFFER_SAMPLES);
+  s_pending_offset = 0;
+  s_pending_length = MIX_BUFFER_SAMPLES;
+}
+
+static uint16_t write_pending_audio(void) {
+  prepare_pending_audio();
+  uint32_t written = speaker_stream_write(s_mix_buffer + s_pending_offset, s_pending_length);
+  if (written > s_pending_length) written = s_pending_length;
+  if (written > 0) {
+    s_pending_offset += written;
+    s_pending_length -= written;
+    advance_mix_position(written);
+    s_empty_write_count = 0;
+  }
+  return written;
+}
+
+static void stop_for_audio_error(void) {
+  s_playing = false;
+  s_audio_error = true;
+  s_pending_length = 0;
+  cancel_audio_timer();
+  speaker_stop();
+  redraw();
+}
+
+static void playback_finished(SpeakerFinishReason reason, void *context) {
+  if (s_playing && (reason == SpeakerFinishReasonPreempted || reason == SpeakerFinishReasonError)) {
+    stop_for_audio_error();
+  }
+}
+
 static void pump_audio(void *context) {
   s_audio_timer = NULL;
   if (!s_playing) return;
-  render_mix(s_mix_buffer, MIX_BUFFER_SAMPLES);
-  uint32_t written = speaker_stream_write(s_mix_buffer, MIX_BUFFER_SAMPLES);
-  if (written > 0) advance_mix_position(written);
-  // A short refill cadence keeps enough queued PCM to bridge scheduler jitter.
+  if (write_pending_audio() == 0) {
+    s_empty_write_count++;
+    if (s_empty_write_count >= 8 && speaker_get_status() == SpeakerStatusIdle) {
+      stop_for_audio_error();
+      return;
+    }
+  }
+  // A short refill cadence keeps enough queued PCM to bridge scheduler jitter without re-rendering.
   s_audio_timer = app_timer_register(5, pump_audio, NULL);
 }
 
@@ -270,7 +331,12 @@ static bool play_pattern(void) {
   if (!s_playing) return false;
   s_mix_step = 0;
   s_mix_step_sample = 0;
+  s_mix_step_remainder = 0;
+  s_mix_step_length = next_step_samples(&s_mix_step_remainder);
   s_playhead = 0;
+  s_pending_offset = 0;
+  s_pending_length = 0;
+  s_empty_write_count = 0;
   if (!speaker_stream_open(SpeakerPcmFormat_8kHz_8bit, 76)) {
     s_playing = false;
     s_audio_error = true;
@@ -279,11 +345,9 @@ static bool play_pattern(void) {
   }
   uint32_t queued = 0;
   for (uint8_t buffer = 0; buffer < MIX_PRIME_BUFFERS; buffer++) {
-    render_mix(s_mix_buffer, MIX_BUFFER_SAMPLES);
-    uint32_t written = speaker_stream_write(s_mix_buffer, MIX_BUFFER_SAMPLES);
+    uint16_t written = write_pending_audio();
     queued += written;
-    if (written > 0) advance_mix_position(written);
-    if (written < MIX_BUFFER_SAMPLES) break;
+    if (written == 0 || s_pending_length != 0) break;
   }
   if (queued == 0) {
     speaker_stream_close();
@@ -313,6 +377,7 @@ static void set_playing(bool playing) {
     play_pattern();
   } else {
     cancel_audio_timer();
+    s_pending_length = 0;
     speaker_stop();
   }
   redraw();
@@ -659,6 +724,7 @@ static void init(void) {
     .load = window_load, .unload = window_unload,
   });
   window_set_click_config_provider(s_window, click_config_provider);
+  speaker_set_finish_callback(playback_finished, NULL);
   app_message_register_inbox_received(inbox_received);
   // The phone editor sends six patterns, 32 pitch values, tempo, and transport together.
   app_message_open(256, 256);
@@ -668,6 +734,7 @@ static void init(void) {
 static void deinit(void) {
   speaker_stop();
   cancel_audio_timer();
+  speaker_set_finish_callback(NULL, NULL);
   app_message_deregister_callbacks();
   window_destroy(s_window);
 }
