@@ -42,6 +42,7 @@
     for (track = 0; track < 2; track++) { synthNotes[track] = (/^[0-6]{16}$/.test(state['SynthNotes' + track] || '') ? state['SynthNotes' + track] : '0000000000000000').split(''); }
     var cachedState = getParam('source') === 'cached';
     if (cachedState) document.getElementById('notice').textContent = 'Watch unavailable — the saved phone copy is view-only. Close Settings, reconnect the watch, then reopen.';
+    if (getParam('source') === 'phone') document.getElementById('notice').textContent = 'Editing the saved phone copy. Save sends it to Pebble Studio on your open watch.';
     for (track = 0; track < names.length; track++) {
       row = document.createElement('div'); row.className = 'track track-' + track;
       label = document.createElement('label'); label.textContent = names[track]; row.appendChild(label);

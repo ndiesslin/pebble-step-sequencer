@@ -8,6 +8,7 @@ var waitingToOpen = false;
 var fallbackTimer = null;
 var settingsRequestFailed = false;
 var settingsRequestAttempts = 0;
+var settingsSource = 'phone';
 var pendingSave = null;
 
 function validNumber(value, min, max, fallback) {
@@ -46,7 +47,7 @@ function openConfiguration() {
   var separator = CONFIG_URL.indexOf('?') === -1 ? '?' : '&';
   var state = encodeURIComponent(JSON.stringify(savedSettings));
   Pebble.openURL(CONFIG_URL + separator + 'state=' + state +
-    '&source=' + (settingsRequestFailed ? 'cached' : 'watch'));
+    '&source=' + (settingsRequestFailed ? 'cached' : settingsSource));
 }
 
 function finishPendingSave() {
@@ -105,36 +106,14 @@ Pebble.addEventListener('ready', function () {
 
 Pebble.addEventListener('showConfiguration', function () {
   waitingToOpen = true;
+  // The Pebble mobile configuration bridge does not reliably deliver watch-to-phone
+  // replies on every Dev Connection. Open immediately from the safe phone copy;
+  // saves still use the acknowledged phone-to-watch protocol below.
   settingsRequestFailed = false;
-  settingsRequestAttempts = 0;
-  requestWatchSettings();
+  settingsSource = 'phone';
+  savedSettings = normalise(savedSettings);
+  openConfiguration();
 });
-
-function requestWatchSettings() {
-  settingsRequestAttempts++;
-  var request = (function () {
-    var message = {}; message[keys.RequestSettings] = 1; return message;
-  }());
-  function retryOrOpenCached(error) {
-    if (!waitingToOpen) return;
-    if (settingsRequestAttempts < 2) {
-      console.log('Retrying watch settings request ' + settingsRequestAttempts + ': ' + (error || 'no reply'));
-      fallbackTimer = setTimeout(requestWatchSettings, 250);
-      return;
-    }
-    console.log('Unable to request watch settings: ' + (error || 'no reply'));
-    settingsRequestFailed = true;
-    openConfiguration();
-  }
-  Pebble.sendAppMessage(request, function () {
-    // Bluetooth/AppMessage can take a moment to wake; retry before falling back to cache.
-    fallbackTimer = setTimeout(function () {
-      retryOrOpenCached('no reply after 2.5 seconds');
-    }, 2500);
-  }, function (error) {
-    retryOrOpenCached(JSON.stringify(error));
-  });
-}
 
 Pebble.addEventListener('appmessage', function (event) {
   var payload = event.payload;
