@@ -7,6 +7,7 @@ var savedSettings = {};
 var waitingToOpen = false;
 var fallbackTimer = null;
 var settingsRequestFailed = false;
+var settingsRequestAttempts = 0;
 var pendingSave = null;
 
 function validNumber(value, min, max, fallback) {
@@ -105,21 +106,35 @@ Pebble.addEventListener('ready', function () {
 Pebble.addEventListener('showConfiguration', function () {
   waitingToOpen = true;
   settingsRequestFailed = false;
+  settingsRequestAttempts = 0;
+  requestWatchSettings();
+});
+
+function requestWatchSettings() {
+  settingsRequestAttempts++;
   var request = (function () {
     var message = {}; message[keys.RequestSettings] = 1; return message;
   }());
-  Pebble.sendAppMessage(request, function () {
-    // Wait for the watch's state reply; use cache only if it does not arrive.
-    fallbackTimer = setTimeout(function () {
-      settingsRequestFailed = true;
-      openConfiguration();
-    }, 3000);
-  }, function (error) {
-    console.log('Unable to request watch settings: ' + JSON.stringify(error));
+  function retryOrOpenCached(error) {
+    if (!waitingToOpen) return;
+    if (settingsRequestAttempts < 3) {
+      console.log('Retrying watch settings request ' + settingsRequestAttempts + ': ' + (error || 'no reply'));
+      fallbackTimer = setTimeout(requestWatchSettings, 750);
+      return;
+    }
+    console.log('Unable to request watch settings: ' + (error || 'no reply'));
     settingsRequestFailed = true;
     openConfiguration();
+  }
+  Pebble.sendAppMessage(request, function () {
+    // Bluetooth/AppMessage can take a moment to wake; retry before falling back to cache.
+    fallbackTimer = setTimeout(function () {
+      retryOrOpenCached('no reply after 4 seconds');
+    }, 4000);
+  }, function (error) {
+    retryOrOpenCached(JSON.stringify(error));
   });
-});
+}
 
 Pebble.addEventListener('appmessage', function (event) {
   var payload = event.payload;

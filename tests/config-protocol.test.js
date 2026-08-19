@@ -6,6 +6,7 @@ var nativeCode = fs.readFileSync('src/c/main.c', 'utf8');
 var config = fs.readFileSync('config/index.html', 'utf8');
 
 assert(/SyncId/.test(pkjs) && /SyncStatus/.test(pkjs), 'phone saves must await watch acknowledgements');
+assert(/settingsRequestAttempts/.test(pkjs) && /requestWatchSettings/.test(pkjs), 'phone should retry live watch settings');
 assert(/dict_write_cstring\(iter, MESSAGE_KEY_SynthNotes0/.test(nativeCode), 'watch reply must include bass pitches');
 assert(/dict_write_cstring\(iter, MESSAGE_KEY_SynthNotes1/.test(nativeCode), 'watch reply must include lead pitches');
 assert(/cachedState/.test(config) && /disabled = true/.test(config), 'cached editor must be view-only');
