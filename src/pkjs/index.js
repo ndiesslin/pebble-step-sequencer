@@ -10,8 +10,14 @@ var settingsRequestFailed = false;
 var settingsRequestAttempts = 0;
 var settingsSource = 'phone';
 var pendingSave = null;
-var reopenAfterSave = false;
 var settingsNotice = '';
+
+var defaultSettings = {
+  Pattern0: 0x1111, Pattern1: 0x2222, Pattern2: 0x4444, Pattern3: 0x8888,
+  Synth0: 0x1111, Synth1: 0x8421,
+  SynthNotes0: '0000000000000000', SynthNotes1: '0000000000000000',
+  Bpm: 120, Transport: 0
+};
 
 function validNumber(value, min, max, fallback) {
   value = Number(value);
@@ -27,18 +33,18 @@ function normalise(settings) {
   var next = {};
   for (var i = 0; i < 4; i++) {
     next['Pattern' + i] = validNumber(settings['Pattern' + i], 0, 65535,
-      savedSettings['Pattern' + i] || 0);
+      savedSettings['Pattern' + i] === undefined ? defaultSettings['Pattern' + i] : savedSettings['Pattern' + i]);
   }
   for (var j = 0; j < 2; j++) {
     next['Synth' + j] = validNumber(settings['Synth' + j], 0, 65535,
-      savedSettings['Synth' + j] || 0);
+      savedSettings['Synth' + j] === undefined ? defaultSettings['Synth' + j] : savedSettings['Synth' + j]);
   }
   for (var k = 0; k < 2; k++) {
     next['SynthNotes' + k] = validNotes(settings['SynthNotes' + k],
-      savedSettings['SynthNotes' + k]);
+      savedSettings['SynthNotes' + k] === undefined ? defaultSettings['SynthNotes' + k] : savedSettings['SynthNotes' + k]);
   }
-  next.Bpm = validNumber(settings.Bpm, 60, 240, savedSettings.Bpm || 120);
-  next.Transport = validNumber(settings.Transport, 0, 1, savedSettings.Transport || 0);
+  next.Bpm = validNumber(settings.Bpm, 60, 240, savedSettings.Bpm === undefined ? defaultSettings.Bpm : savedSettings.Bpm);
+  next.Transport = validNumber(settings.Transport, 0, 1, savedSettings.Transport === undefined ? defaultSettings.Transport : savedSettings.Transport);
   return next;
 }
 
@@ -66,10 +72,6 @@ function finishPendingSave() {
   localStorage.setItem('pebbleStudioSettings', JSON.stringify(savedSettings));
   console.log('Pebble Studio settings saved and acknowledged by watch.');
   pendingSave = null;
-  if (reopenAfterSave) {
-    reopenAfterSave = false;
-    reopenEditor('Saved to Pebble.');
-  }
 }
 
 function retryPendingSave(reason) {
@@ -79,10 +81,6 @@ function retryPendingSave(reason) {
   if (save.attempt++ >= 2) {
     console.log('Unable to save Pebble Studio setting ' + save.index + ': ' + (reason || 'acknowledgement timed out'));
     pendingSave = null;
-    if (reopenAfterSave) {
-      reopenAfterSave = false;
-      reopenEditor('Could not confirm the save. Keep Pebble Studio open and try again.');
-    }
     return;
   }
   console.log('Retrying Pebble Studio setting ' + save.index + ': ' + (reason || 'acknowledgement timed out'));
@@ -161,7 +159,6 @@ Pebble.addEventListener('appmessage', function (event) {
 Pebble.addEventListener('webviewclosed', function (event) {
   if (!event.response) return;
   try {
-    reopenAfterSave = true;
     sendSettings(JSON.parse(decodeURIComponent(event.response)));
   }
   catch (error) { console.log('Invalid sequencer configuration: ' + error); }

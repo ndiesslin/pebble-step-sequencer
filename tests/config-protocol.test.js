@@ -7,7 +7,8 @@ var config = fs.readFileSync('config/index.html', 'utf8');
 
 assert(/SyncId/.test(pkjs) && /SyncStatus/.test(pkjs), 'phone saves must await watch acknowledgements');
 assert(/settingsSource = 'phone'/.test(pkjs), 'Settings should open immediately from the saved phone copy');
-assert(/reopenAfterSave/.test(pkjs) && /Saved to Pebble/.test(pkjs), 'editor should reopen after an acknowledged save');
+assert(/defaultSettings/.test(pkjs), 'phone editor should start with the app defaults rather than blank patterns');
+assert(/Save draft/.test(config) && /Close &amp; Save to Pebble/.test(config), 'editor should separate drafting from the close-to-save bridge');
 assert(/dict_write_uint16\(iter, MESSAGE_KEY_Pattern0/.test(nativeCode), 'watch reply must include drum patterns');
 assert(!/settingsRequestPart/.test(pkjs), 'opening Settings should not wait for a second state round-trip');
 assert(/cachedState/.test(config) && /disabled = true/.test(config), 'cached editor must be view-only');
