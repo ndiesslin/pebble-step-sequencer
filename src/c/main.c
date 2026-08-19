@@ -57,11 +57,6 @@ static int8_t s_mix_buffer[MIX_BUFFER_SAMPLES];
 static uint16_t s_pending_offset;
 static uint16_t s_pending_length;
 static uint8_t s_empty_write_count;
-static uint16_t s_playhead_step_sample;
-static uint16_t s_playhead_step_length;
-static uint16_t s_playhead_step_remainder;
-static uint16_t s_playhead_last_ms;
-static uint16_t s_playhead_ms_remainder;
 
 static const char *s_track_names[TRACK_COUNT] = { "KICK", "SNARE", "HAT", "RIM" };
 static const GColor s_track_colors[TRACK_COUNT] = {
@@ -269,6 +264,7 @@ static void render_mix(int8_t *buffer, uint16_t count) {
 }
 
 static void advance_mix_position(uint16_t count) {
+  bool playhead_changed = false;
   while (count > 0) {
     uint16_t remaining = s_mix_step_length - s_mix_step_sample;
     uint16_t advance = count < remaining ? count : remaining;
@@ -278,37 +274,11 @@ static void advance_mix_position(uint16_t count) {
       s_mix_step_sample = 0;
       s_mix_step = (s_mix_step + 1) % STEP_COUNT;
       s_mix_step_length = next_step_samples(&s_mix_step_remainder);
+      s_playhead = s_mix_step;
+      playhead_changed = true;
     }
   }
-}
-
-// The stream stays slightly ahead of the speaker. Follow elapsed time here rather
-// than bytes accepted by the queue, so the UI follows the sound that is heard.
-static void advance_playhead_position(uint16_t count) {
-  bool changed = false;
-  while (count > 0) {
-    uint16_t remaining = s_playhead_step_length - s_playhead_step_sample;
-    uint16_t advance = count < remaining ? count : remaining;
-    s_playhead_step_sample += advance;
-    count -= advance;
-    if (s_playhead_step_sample >= s_playhead_step_length) {
-      s_playhead_step_sample = 0;
-      s_playhead = (s_playhead + 1) % STEP_COUNT;
-      s_playhead_step_length = next_step_samples(&s_playhead_step_remainder);
-      changed = true;
-    }
-  }
-  if (changed) redraw();
-}
-
-static void update_playhead(void) {
-  uint16_t now;
-  time_ms(NULL, &now);
-  uint16_t elapsed_ms = now - s_playhead_last_ms;
-  s_playhead_last_ms = now;
-  uint32_t samples = s_playhead_ms_remainder + (uint32_t)elapsed_ms * PCM_SAMPLE_RATE;
-  s_playhead_ms_remainder = samples % 1000;
-  advance_playhead_position(samples / 1000);
+  if (playhead_changed) redraw();
 }
 
 static void prepare_pending_audio(void) {
@@ -349,7 +319,6 @@ static void playback_finished(SpeakerFinishReason reason, void *context) {
 static void pump_audio(void *context) {
   s_audio_timer = NULL;
   if (!s_playing) return;
-  update_playhead();
   if (write_pending_audio() == 0) {
     s_empty_write_count++;
     if (s_empty_write_count >= 8 && speaker_get_status() == SpeakerStatusIdle) {
@@ -368,11 +337,6 @@ static bool play_pattern(void) {
   s_mix_step_remainder = 0;
   s_mix_step_length = next_step_samples(&s_mix_step_remainder);
   s_playhead = 0;
-  s_playhead_step_sample = 0;
-  s_playhead_step_remainder = 0;
-  s_playhead_step_length = next_step_samples(&s_playhead_step_remainder);
-  s_playhead_ms_remainder = 0;
-  time_ms(NULL, &s_playhead_last_ms);
   s_pending_offset = 0;
   s_pending_length = 0;
   s_empty_write_count = 0;
