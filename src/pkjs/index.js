@@ -121,9 +121,9 @@ function requestWatchSettings() {
   }());
   function retryOrOpenCached(error) {
     if (!waitingToOpen) return;
-    if (settingsRequestAttempts < 3) {
+    if (settingsRequestAttempts < 2) {
       console.log('Retrying watch settings request ' + settingsRequestAttempts + ': ' + (error || 'no reply'));
-      fallbackTimer = setTimeout(requestWatchSettings, 750);
+      fallbackTimer = setTimeout(requestWatchSettings, 250);
       return;
     }
     console.log('Unable to request watch settings: ' + (error || 'no reply'));
@@ -133,8 +133,8 @@ function requestWatchSettings() {
   Pebble.sendAppMessage(request, function () {
     // Bluetooth/AppMessage can take a moment to wake; retry before falling back to cache.
     fallbackTimer = setTimeout(function () {
-      retryOrOpenCached('no reply after 4 seconds');
-    }, 4000);
+      retryOrOpenCached('no reply after 2.5 seconds');
+    }, 2500);
   }, function (error) {
     retryOrOpenCached(JSON.stringify(error));
   });

@@ -48,7 +48,7 @@ Every 16-step row is one 4/4 bar. A divider after steps 4, 8, and 12 marks the f
 
 ## Edit from the Pebble mobile app
 
-The companion app opens an editor from the app's **Settings** screen in the Pebble mobile app. It synchronizes all 96 drum and synth steps, all 32 synth pitches, tempo, and the current play/stop state before opening. The editor can change every one of those values and writes them back one field at a time; each field is acknowledged by the watch and retried up to twice. If the watch cannot be reached, the cached editor is view-only so it cannot overwrite newer watch data.
+The companion app opens an editor from the app's **Settings** screen in the Pebble mobile app. It synchronizes all 96 drum and synth steps, all 32 synth pitches, tempo, and the current play/stop state before opening. The editor makes two quick attempts per sync packet before opening a safe cached view. It can change every value and writes them back one field at a time; each field is acknowledged by the watch and retried up to twice. If the watch cannot be reached, the cached editor is view-only so it cannot overwrite newer watch data.
 
 The configuration webview is deployed automatically by the GitHub Pages workflow from `config/` whenever that directory changes. The release build points to `https://ndiesslin.github.io/pebble-step-sequencer/`. If the repository is transferred or renamed, update `CONFIG_URL` in `src/pkjs/index.js`, rebuild the `.pbw`, and verify the Settings round trip in the Pebble mobile app. No server or account credentials are needed by the editor.
 
