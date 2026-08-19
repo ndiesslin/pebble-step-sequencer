@@ -128,15 +128,15 @@ static uint16_t envelope(uint16_t index, uint16_t count, uint16_t peak) {
 
 static void init_drum_samples(void) {
   uint16_t phase = 0;
-  uint16_t frequency = 240;
+  uint16_t frequency = 360;
   for (uint16_t i = 0; i < KICK_SAMPLE_COUNT; i++) {
     uint16_t amplitude = envelope(i, KICK_SAMPLE_COUNT, 127);
-    // Keep the body above the tiny speaker's weak sub-bass range, then add a beater attack.
+    // Keep the body in the tiny speaker's audible low-mid range, then add a beater attack.
     int32_t body = s_sine[phase >> 10] * amplitude / 127;
     int32_t click = i < 28 ? next_noise() * (28 - i) / 56 : 0;
     s_kick_pcm[i] = clamp_sample(body + click);
     phase += frequency * 8;
-    frequency = frequency * 999 / 1000;  // 240 Hz attack falls toward an audible ~115 Hz thump.
+    frequency = frequency * 1999 / 2000;  // 360 Hz attack settles near a still-audible ~250 Hz thump.
   }
 
   phase = 0;
