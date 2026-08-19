@@ -10,6 +10,8 @@ var settingsRequestFailed = false;
 var settingsRequestAttempts = 0;
 var settingsSource = 'phone';
 var pendingSave = null;
+var reopenAfterSave = false;
+var settingsNotice = '';
 
 function validNumber(value, min, max, fallback) {
   value = Number(value);
@@ -47,7 +49,16 @@ function openConfiguration() {
   var separator = CONFIG_URL.indexOf('?') === -1 ? '?' : '&';
   var state = encodeURIComponent(JSON.stringify(savedSettings));
   Pebble.openURL(CONFIG_URL + separator + 'state=' + state +
-    '&source=' + (settingsRequestFailed ? 'cached' : settingsSource));
+    '&source=' + (settingsRequestFailed ? 'cached' : settingsSource) +
+    '&notice=' + encodeURIComponent(settingsNotice));
+}
+
+function reopenEditor(notice) {
+  waitingToOpen = true;
+  settingsRequestFailed = false;
+  settingsSource = 'phone';
+  settingsNotice = notice;
+  openConfiguration();
 }
 
 function finishPendingSave() {
@@ -55,6 +66,10 @@ function finishPendingSave() {
   localStorage.setItem('pebbleStudioSettings', JSON.stringify(savedSettings));
   console.log('Pebble Studio settings saved and acknowledged by watch.');
   pendingSave = null;
+  if (reopenAfterSave) {
+    reopenAfterSave = false;
+    reopenEditor('Saved to Pebble.');
+  }
 }
 
 function retryPendingSave(reason) {
@@ -64,6 +79,10 @@ function retryPendingSave(reason) {
   if (save.attempt++ >= 2) {
     console.log('Unable to save Pebble Studio setting ' + save.index + ': ' + (reason || 'acknowledgement timed out'));
     pendingSave = null;
+    if (reopenAfterSave) {
+      reopenAfterSave = false;
+      reopenEditor('Could not confirm the save. Keep Pebble Studio open and try again.');
+    }
     return;
   }
   console.log('Retrying Pebble Studio setting ' + save.index + ': ' + (reason || 'acknowledgement timed out'));
@@ -111,6 +130,7 @@ Pebble.addEventListener('showConfiguration', function () {
   // saves still use the acknowledged phone-to-watch protocol below.
   settingsRequestFailed = false;
   settingsSource = 'phone';
+  settingsNotice = '';
   savedSettings = normalise(savedSettings);
   openConfiguration();
 });
@@ -140,6 +160,9 @@ Pebble.addEventListener('appmessage', function (event) {
 
 Pebble.addEventListener('webviewclosed', function (event) {
   if (!event.response) return;
-  try { sendSettings(JSON.parse(decodeURIComponent(event.response))); }
+  try {
+    reopenAfterSave = true;
+    sendSettings(JSON.parse(decodeURIComponent(event.response)));
+  }
   catch (error) { console.log('Invalid sequencer configuration: ' + error); }
 });

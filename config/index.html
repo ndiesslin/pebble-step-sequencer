@@ -43,6 +43,7 @@
     var cachedState = getParam('source') === 'cached';
     if (cachedState) document.getElementById('notice').textContent = 'Watch unavailable — the saved phone copy is view-only. Close Settings, reconnect the watch, then reopen.';
     if (getParam('source') === 'phone') document.getElementById('notice').textContent = 'Editing the saved phone copy. Save sends it to Pebble Studio on your open watch.';
+    if (getParam('notice')) document.getElementById('notice').textContent = getParam('notice');
     for (track = 0; track < names.length; track++) {
       row = document.createElement('div'); row.className = 'track track-' + track;
       label = document.createElement('label'); label.textContent = names[track]; row.appendChild(label);
