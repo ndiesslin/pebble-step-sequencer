@@ -12,6 +12,8 @@ extern uint32_t MESSAGE_KEY_SynthNotes1;
 extern uint32_t MESSAGE_KEY_Bpm;
 extern uint32_t MESSAGE_KEY_Transport;
 extern uint32_t MESSAGE_KEY_RequestSettings;
+extern uint32_t MESSAGE_KEY_SyncId;
+extern uint32_t MESSAGE_KEY_SyncStatus;
 
 #define TRACK_COUNT 4
 #define SYNTH_TRACK_COUNT 2
@@ -55,6 +57,11 @@ static int8_t s_mix_buffer[MIX_BUFFER_SAMPLES];
 static uint16_t s_pending_offset;
 static uint16_t s_pending_length;
 static uint8_t s_empty_write_count;
+static uint16_t s_playhead_step_sample;
+static uint16_t s_playhead_step_length;
+static uint16_t s_playhead_step_remainder;
+static uint16_t s_playhead_last_ms;
+static uint16_t s_playhead_ms_remainder;
 
 static const char *s_track_names[TRACK_COUNT] = { "KICK", "SNARE", "HAT", "RIM" };
 static const GColor s_track_colors[TRACK_COUNT] = {
@@ -261,7 +268,6 @@ static void render_mix(int8_t *buffer, uint16_t count) {
 }
 
 static void advance_mix_position(uint16_t count) {
-  bool playhead_changed = false;
   while (count > 0) {
     uint16_t remaining = s_mix_step_length - s_mix_step_sample;
     uint16_t advance = count < remaining ? count : remaining;
@@ -271,11 +277,37 @@ static void advance_mix_position(uint16_t count) {
       s_mix_step_sample = 0;
       s_mix_step = (s_mix_step + 1) % STEP_COUNT;
       s_mix_step_length = next_step_samples(&s_mix_step_remainder);
-      s_playhead = s_mix_step;
-      playhead_changed = true;
     }
   }
-  if (playhead_changed) redraw();
+}
+
+// The stream stays slightly ahead of the speaker. Follow elapsed time here rather
+// than bytes accepted by the queue, so the UI follows the sound that is heard.
+static void advance_playhead_position(uint16_t count) {
+  bool changed = false;
+  while (count > 0) {
+    uint16_t remaining = s_playhead_step_length - s_playhead_step_sample;
+    uint16_t advance = count < remaining ? count : remaining;
+    s_playhead_step_sample += advance;
+    count -= advance;
+    if (s_playhead_step_sample >= s_playhead_step_length) {
+      s_playhead_step_sample = 0;
+      s_playhead = (s_playhead + 1) % STEP_COUNT;
+      s_playhead_step_length = next_step_samples(&s_playhead_step_remainder);
+      changed = true;
+    }
+  }
+  if (changed) redraw();
+}
+
+static void update_playhead(void) {
+  uint16_t now;
+  time_ms(NULL, &now);
+  uint16_t elapsed_ms = now - s_playhead_last_ms;
+  s_playhead_last_ms = now;
+  uint32_t samples = s_playhead_ms_remainder + (uint32_t)elapsed_ms * PCM_SAMPLE_RATE;
+  s_playhead_ms_remainder = samples % 1000;
+  advance_playhead_position(samples / 1000);
 }
 
 static void prepare_pending_audio(void) {
@@ -316,6 +348,7 @@ static void playback_finished(SpeakerFinishReason reason, void *context) {
 static void pump_audio(void *context) {
   s_audio_timer = NULL;
   if (!s_playing) return;
+  update_playhead();
   if (write_pending_audio() == 0) {
     s_empty_write_count++;
     if (s_empty_write_count >= 8 && speaker_get_status() == SpeakerStatusIdle) {
@@ -334,6 +367,11 @@ static bool play_pattern(void) {
   s_mix_step_remainder = 0;
   s_mix_step_length = next_step_samples(&s_mix_step_remainder);
   s_playhead = 0;
+  s_playhead_step_sample = 0;
+  s_playhead_step_remainder = 0;
+  s_playhead_step_length = next_step_samples(&s_playhead_step_remainder);
+  s_playhead_ms_remainder = 0;
+  time_ms(NULL, &s_playhead_last_ms);
   s_pending_offset = 0;
   s_pending_length = 0;
   s_empty_write_count = 0;
@@ -360,13 +398,6 @@ static bool play_pattern(void) {
   cancel_audio_timer();
   s_audio_timer = app_timer_register(5, pump_audio, NULL);
   return true;
-}
-
-static void restart_playback(void) {
-  if (!s_playing) return;
-  cancel_audio_timer();
-  speaker_stop();
-  play_pattern();
 }
 
 static void set_playing(bool playing) {
@@ -453,7 +484,7 @@ static void draw_sequencer(Layer *layer, GContext *ctx) {
   }
   draw_centered(ctx, header, GRect(0, 0, bounds.size.w, 20),
                 fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD), GColorWhite);
-  draw_centered(ctx, s_page == PageSynths ? "U/D STEP DBL PITCH" : "U/D STEP HLD ROW",
+  draw_centered(ctx, s_page == PageSynths ? "HLD ROW  DBL PITCH" : "HLD ROW  DBL BPM",
                 GRect(0, 19, bounds.size.w, 15),
                 fonts_get_system_font(FONT_KEY_GOTHIC_14), GColorLightGray);
 
@@ -505,7 +536,6 @@ static void select_click(ClickRecognizerRef recognizer, void *context) {
   if (click_number_of_clicks_counted(recognizer) == 2) {
     s_page = s_page == PageDrums ? PageSynths : PageDrums;
     s_cursor_track = 0;
-    restart_playback();
     redraw();
     return;
   }
@@ -515,7 +545,6 @@ static void select_click(ClickRecognizerRef recognizer, void *context) {
              s_page == PageSynths ? 1 << s_cursor_track : 0, false);
   redraw();
   if (!s_playing) speaker_play_tone(660, 35, 35, SpeakerWaveformSquare);
-  else restart_playback();
 }
 
 static void select_long_click(ClickRecognizerRef recognizer, void *context) {
@@ -533,7 +562,6 @@ static void up_click(ClickRecognizerRef recognizer, void *context) {
     } else if (s_bpm < MAX_BPM) {
       s_bpm += 5;
       save_state(0, 0, true);
-      restart_playback();
     }
   } else {
     s_cursor_step = (s_cursor_step + STEP_COUNT - 1) % STEP_COUNT;
@@ -552,7 +580,6 @@ static void down_click(ClickRecognizerRef recognizer, void *context) {
     } else if (s_bpm > MIN_BPM) {
       s_bpm -= 5;
       save_state(0, 0, true);
-      restart_playback();
     }
   } else {
     s_cursor_step = (s_cursor_step + 1) % STEP_COUNT;
@@ -590,6 +617,13 @@ static void window_unload(Window *window) { layer_destroy(s_canvas); }
 
 static void send_settings(void) {
   DictionaryIterator *iter;
+  char synth_notes[SYNTH_TRACK_COUNT][STEP_COUNT + 1];
+  for (uint8_t track = 0; track < SYNTH_TRACK_COUNT; track++) {
+    for (uint8_t step = 0; step < STEP_COUNT; step++) {
+      synth_notes[track][step] = '0' + s_synth_note_index[track][step];
+    }
+    synth_notes[track][STEP_COUNT] = '\0';
+  }
   if (app_message_outbox_begin(&iter) != APP_MSG_OK) return;
   dict_write_uint16(iter, MESSAGE_KEY_Pattern0, s_drum_pattern[0]);
   dict_write_uint16(iter, MESSAGE_KEY_Pattern1, s_drum_pattern[1]);
@@ -597,8 +631,19 @@ static void send_settings(void) {
   dict_write_uint16(iter, MESSAGE_KEY_Pattern3, s_drum_pattern[3]);
   dict_write_uint16(iter, MESSAGE_KEY_Synth0, s_synth_pattern[0]);
   dict_write_uint16(iter, MESSAGE_KEY_Synth1, s_synth_pattern[1]);
+  dict_write_cstring(iter, MESSAGE_KEY_SynthNotes0, synth_notes[0]);
+  dict_write_cstring(iter, MESSAGE_KEY_SynthNotes1, synth_notes[1]);
   dict_write_uint16(iter, MESSAGE_KEY_Bpm, s_bpm);
   dict_write_uint8(iter, MESSAGE_KEY_Transport, s_playing ? 1 : 0);
+  dict_write_end(iter);
+  app_message_outbox_send();
+}
+
+static void send_sync_ack(uint32_t sync_id) {
+  DictionaryIterator *iter;
+  if (app_message_outbox_begin(&iter) != APP_MSG_OK) return;
+  dict_write_uint32(iter, MESSAGE_KEY_SyncId, sync_id);
+  dict_write_uint8(iter, MESSAGE_KEY_SyncStatus, 1);
   dict_write_end(iter);
   app_message_outbox_send();
 }
@@ -645,6 +690,7 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     dict_find(iter, MESSAGE_KEY_SynthNotes0), dict_find(iter, MESSAGE_KEY_SynthNotes1),
   };
   Tuple *transport = dict_find(iter, MESSAGE_KEY_Transport);
+  Tuple *sync_id = dict_find(iter, MESSAGE_KEY_SyncId);
   uint8_t changed_tracks = 0;
   uint8_t changed_synth_tracks = 0;
   bool bpm_changed = false;
@@ -688,11 +734,12 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   }
   if (changed_tracks || changed_synth_tracks || bpm_changed || synth_notes_changed) {
     save_state(changed_tracks, changed_synth_tracks, bpm_changed);
-    restart_playback();
     redraw();
   }
   uint32_t requested_transport;
   if (tuple_to_uint32(transport, &requested_transport)) set_playing(requested_transport != 0);
+  uint32_t requested_sync_id;
+  if (tuple_to_uint32(sync_id, &requested_sync_id)) send_sync_ack(requested_sync_id);
 }
 
 static void load_state(void) {

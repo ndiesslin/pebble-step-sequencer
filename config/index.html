@@ -13,6 +13,7 @@
     .track label { grid-column: 1 / -1; font-weight: bold; font-size: .9rem; letter-spacing: .05em; }
     .step { min-width: 0; } .step.beat { border-top: 2px solid #8b95a5; padding-top: .2rem; }
     button { min-height: 3rem; width: 100%; border: 0; border-radius: .4rem; background: #303744; color: white; font-size: .9rem; font-weight: bold; }
+    button:disabled, input:disabled { opacity: .45; cursor: not-allowed; }
     .track-0 button.active { background: #d42d27; } .track-1 button.active { background: #e88916; }
     .track-2 button.active { background: #168a57; } .track-3 button.active { background: #007caa; }
     .track-4 button.active { background: #8547c7; } .track-5 button.active { background: #008fc4; }
@@ -34,35 +35,36 @@
     var names = ['Kick', 'Snare', 'Hi-hat', 'Rim', 'Bass', 'Lead'], noteNames = [['C4', 'D4', 'E4', 'G4', 'A4', 'B4', 'C5'], ['C5', 'D5', 'E5', 'G5', 'A5', 'B5', 'C6']], state = {}, tracks = document.getElementById('tracks'), returnTo = getParam('return_to') || 'pebblejs://close#', track, step, row, label, cell, button, pitchRows = [], synthNotes = [], playing;
     try { state = JSON.parse(getParam('state') || '{}'); } catch (error) { state = {}; }
     for (track = 0; track < 2; track++) { synthNotes[track] = (/^[0-6]{16}$/.test(state['SynthNotes' + track] || '') ? state['SynthNotes' + track] : '0000000000000000').split(''); }
-    if (getParam('source') === 'cached') document.getElementById('notice').innerHTML = 'Watch unavailable — editing the last saved phone copy.';
+    var cachedState = getParam('source') === 'cached';
+    if (cachedState) document.getElementById('notice').textContent = 'Watch unavailable — the saved phone copy is view-only. Close Settings, reconnect the watch, then reopen.';
     for (track = 0; track < names.length; track++) {
       row = document.createElement('div'); row.className = 'track track-' + track;
-      label = document.createElement('label'); label.innerHTML = names[track]; row.appendChild(label);
+      label = document.createElement('label'); label.textContent = names[track]; row.appendChild(label);
       for (step = 0; step < 16; step++) {
         cell = document.createElement('span'); cell.className = 'step' + (step >= 4 ? ' beat' : ''); button = document.createElement('button');
-        button.type = 'button'; button.innerHTML = step + 1; button.setAttribute('data-step', step);
+        button.type = 'button'; button.textContent = step + 1; button.setAttribute('data-step', step);
         if ((state[track < 4 ? 'Pattern' + track : 'Synth' + (track - 4)] || 0) & (1 << step)) button.className = 'active';
         button.onclick = function () { toggleClass(this, 'active'); }; cell.appendChild(button); row.appendChild(cell);
       }
       tracks.appendChild(row);
       if (track >= 4) {
         row = document.createElement('div'); row.className = 'track pitch';
-        label = document.createElement('label'); label.innerHTML = 'Pitch'; row.appendChild(label);
+        label = document.createElement('label'); label.textContent = 'Pitch'; row.appendChild(label);
         for (step = 0; step < 16; step++) {
           cell = document.createElement('span'); cell.className = 'step' + (step >= 4 ? ' beat' : ''); button = document.createElement('button');
           button.type = 'button'; button.setAttribute('data-track', track - 4); button.setAttribute('data-step', step);
-          button.innerHTML = noteNames[track - 4][Number(synthNotes[track - 4][step])];
-          button.onclick = function () { var t = Number(this.getAttribute('data-track')), s = Number(this.getAttribute('data-step')), n = (Number(synthNotes[t][s]) + 1) % noteNames[t].length; synthNotes[t][s] = n; this.innerHTML = noteNames[t][n]; };
+          button.textContent = noteNames[track - 4][Number(synthNotes[track - 4][step])];
+          button.onclick = function () { var t = Number(this.getAttribute('data-track')), s = Number(this.getAttribute('data-step')), n = (Number(synthNotes[t][s]) + 1) % noteNames[t].length; synthNotes[t][s] = n; this.textContent = noteNames[t][n]; };
           cell.appendChild(button); row.appendChild(cell);
         }
         tracks.appendChild(row);
       }
     }
-    var bpm = document.getElementById('bpm'), tempo = document.getElementById('tempo-value'); bpm.value = state.Bpm || 120; tempo.innerHTML = bpm.value;
-    bpm.onchange = bpm.oninput = function () { tempo.innerHTML = bpm.value; };
+    var bpm = document.getElementById('bpm'), tempo = document.getElementById('tempo-value'); bpm.value = state.Bpm || 120; tempo.textContent = bpm.value;
+    bpm.onchange = bpm.oninput = function () { tempo.textContent = bpm.value; };
     playing = Number(state.Transport) === 1;
     var transport = document.getElementById('transport');
-    function renderTransport() { transport.innerHTML = playing ? 'Stop playback' : 'Start playback'; }
+    function renderTransport() { transport.textContent = playing ? 'Stop playback' : 'Start playback'; }
     renderTransport(); transport.onclick = function () { playing = !playing; saveToPebble(); };
     function saveToPebble() {
       var result = { Bpm: Number(bpm.value), Transport: playing ? 1 : 0 }, rows = tracks.getElementsByClassName('track'), buttons, value, i, j, sequenceRow = 0;
@@ -71,6 +73,11 @@
       location.href = returnTo + encodeURIComponent(JSON.stringify(result));
     }
     document.getElementById('save').onclick = saveToPebble;
+    if (cachedState) {
+      var controls = document.getElementsByTagName('button'), control;
+      for (var controlIndex = 0; controlIndex < controls.length; controlIndex++) controls[controlIndex].disabled = true;
+      bpm.disabled = true;
+    }
   </script>
 </body>
 </html>

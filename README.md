@@ -48,7 +48,7 @@ Every 16-step row is one 4/4 bar. A divider after steps 4, 8, and 12 marks the f
 
 ## Edit from the Pebble mobile app
 
-The companion app opens an editor from the app's **Settings** screen in the Pebble mobile app. It synchronizes all 96 drum and synth steps, all 32 synth pitches, tempo, and the current play/stop state before opening. The editor can change every one of those values and writes them back to the watch in one save.
+The companion app opens an editor from the app's **Settings** screen in the Pebble mobile app. It synchronizes all 96 drum and synth steps, all 32 synth pitches, tempo, and the current play/stop state before opening. The editor can change every one of those values and writes them back one field at a time; each field is acknowledged by the watch and retried up to twice. If the watch cannot be reached, the cached editor is view-only so it cannot overwrite newer watch data.
 
 The configuration webview is deployed automatically by the GitHub Pages workflow from `config/` whenever that directory changes. The release build points to `https://ndiesslin.github.io/pebble-step-sequencer/`. If the repository is transferred or renamed, update `CONFIG_URL` in `src/pkjs/index.js`, rebuild the `.pbw`, and verify the Settings round trip in the Pebble mobile app. No server or account credentials are needed by the editor.
 
@@ -66,7 +66,7 @@ Use a physical Pebble 2 Duo or Pebble Time 2 for audio. The emulator is useful f
 
 ## Design notes
 
-The app builds one 16-step `SpeakerTrack` per voice and sends the active page together with `speaker_play_tracks()`, producing aligned polyphonic playback. When the pattern finishes, the speaker completion callback queues the next loop. A failed or preempted start changes the header to `ERR` and stops transport. System speaker mute / Quiet Time applies normally; firmware controls it and this SDK revision does not expose its mute state to the app.
+The app mixes all four drum voices and both synth voices into an 8 kHz PCM stream on the watch. A small queued buffer bridges scheduler jitter, while a separate elapsed-time clock keeps the playhead aligned with audible playback. Edits are picked up at the next generated audio buffer rather than restarting the stream. A failed or preempted stream changes the header to `AUDIO ERROR` and stops transport. System speaker mute / Quiet Time applies normally; firmware controls it and this SDK revision does not expose its mute state to the app.
 
 ## Sources
 
