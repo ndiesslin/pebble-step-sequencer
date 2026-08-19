@@ -67,13 +67,14 @@ function reopenEditor(notice) {
 }
 
 function sendSettings(settings) {
+  var shouldSendTransport = Object.prototype.hasOwnProperty.call(settings, 'Transport');
   settings = normalise(settings);
   var messages = [], i, message;
   for (i = 0; i < 4; i++) { message = {}; message[keys['Pattern' + i]] = settings['Pattern' + i]; messages.push(message); }
   for (i = 0; i < 2; i++) { message = {}; message[keys['Synth' + i]] = settings['Synth' + i]; messages.push(message); }
   message = {}; message[keys.Bpm] = settings.Bpm; messages.push(message);
   for (i = 0; i < 2; i++) { message = {}; message[keys['SynthNotes' + i]] = settings['SynthNotes' + i]; messages.push(message); }
-  message = {}; message[keys.Transport] = settings.Transport; messages.push(message);
+  if (shouldSendTransport) { message = {}; message[keys.Transport] = settings.Transport; messages.push(message); }
   function sendNext(index, attempt) {
     if (index >= messages.length) {
       savedSettings = settings;
