@@ -21,7 +21,7 @@ extern uint32_t MESSAGE_KEY_SyncStatus;
 #define PCM_SAMPLE_RATE 8000
 #define KICK_SAMPLE_COUNT 720
 #define SNARE_SAMPLE_COUNT 800
-#define HAT_SAMPLE_COUNT 360
+#define HAT_SAMPLE_COUNT 200
 #define RIM_SAMPLE_COUNT 400
 #define DEFAULT_BPM 120
 #define MIN_BPM 60
@@ -154,7 +154,7 @@ static void init_drum_samples(void) {
   for (uint16_t i = 0; i < HAT_SAMPLE_COUNT; i++) {
     int8_t noise = next_noise();
     uint16_t amplitude = envelope(i, HAT_SAMPLE_COUNT, 120);
-    // First-difference filtering removes low thump and leaves a crisp closed-hat texture.
+    // A short, filtered burst keeps the closed hat crisp without masking the snare body.
     s_hat_pcm[i] = clamp_sample((noise - previous_noise) * amplitude / 127);
     previous_noise = noise;
   }
