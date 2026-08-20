@@ -48,7 +48,6 @@ static uint8_t s_cursor_step;
 static uint16_t s_bpm;
 static bool s_playing;
 static bool s_audio_error;
-static uint8_t s_playhead;
 static AppTimer *s_audio_timer;
 static uint8_t s_mix_step;
 static uint16_t s_mix_step_sample;
@@ -60,14 +59,6 @@ static uint16_t s_pending_length;
 static uint8_t s_empty_write_count;
 static uint32_t s_stream_bytes_written;
 static uint16_t s_stream_zero_writes;
-static uint32_t s_estimated_queued_samples;
-static uint32_t s_estimated_emitted_samples;
-static uint16_t s_visual_step_sample;
-static uint16_t s_visual_step_length;
-static uint16_t s_visual_step_remainder;
-static uint16_t s_visual_last_ms;
-static uint16_t s_visual_ms_remainder;
-static bool s_visual_started;
 
 static const char *s_track_names[TRACK_COUNT] = { "KICK", "SNARE", "HAT", "RIM" };
 static const GColor s_track_colors[TRACK_COUNT] = {
@@ -293,44 +284,6 @@ static void advance_mix_position(uint16_t count) {
   }
 }
 
-// The API reports queued bytes, not the speaker's hardware playhead. Model PCM
-// consumption after playback begins so the cursor follows emitted—not admitted—audio.
-static void update_visual_playhead(void) {
-  uint16_t now;
-  time_ms(NULL, &now);
-  if (speaker_get_status() != SpeakerStatusPlaying) {
-    s_visual_last_ms = now;
-    return;
-  }
-  if (!s_visual_started) {
-    s_visual_started = true;
-    s_visual_last_ms = now;
-    return;
-  }
-  uint16_t elapsed_ms = now - s_visual_last_ms;
-  s_visual_last_ms = now;
-  uint32_t samples = s_visual_ms_remainder + (uint32_t)elapsed_ms * PCM_SAMPLE_RATE;
-  uint16_t count = samples / 1000;
-  s_visual_ms_remainder = samples % 1000;
-  if (count > s_estimated_queued_samples) count = s_estimated_queued_samples;
-  s_estimated_queued_samples -= count;
-  s_estimated_emitted_samples += count;
-  bool changed = false;
-  while (count > 0) {
-    uint16_t remaining = s_visual_step_length - s_visual_step_sample;
-    uint16_t advance = count < remaining ? count : remaining;
-    s_visual_step_sample += advance;
-    count -= advance;
-    if (s_visual_step_sample >= s_visual_step_length) {
-      s_visual_step_sample = 0;
-      s_playhead = (s_playhead + 1) % STEP_COUNT;
-      s_visual_step_length = next_step_samples(&s_visual_step_remainder);
-      changed = true;
-    }
-  }
-  if (changed) redraw();
-}
-
 static void prepare_pending_audio(void) {
   if (s_pending_length != 0) return;
   render_mix(s_mix_buffer, MIX_BUFFER_SAMPLES);
@@ -348,7 +301,6 @@ static uint16_t write_pending_audio(void) {
     advance_mix_position(written);
     s_empty_write_count = 0;
     s_stream_bytes_written += written;
-    s_estimated_queued_samples += written;
   } else {
     s_stream_zero_writes++;
   }
@@ -373,15 +325,11 @@ static void playback_finished(SpeakerFinishReason reason, void *context) {
 static void pump_audio(void *context) {
   s_audio_timer = NULL;
   if (!s_playing) return;
-  update_visual_playhead();
   if (write_pending_audio() == 0) {
     s_empty_write_count++;
     if (s_empty_write_count >= 8 && speaker_get_status() == SpeakerStatusIdle) {
       APP_LOG(APP_LOG_LEVEL_ERROR, "PCM underrun: %lu bytes, %u zero writes",
               (unsigned long)s_stream_bytes_written, s_stream_zero_writes);
-      APP_LOG(APP_LOG_LEVEL_ERROR, "PCM model: %lu queued, %lu emitted",
-              (unsigned long)s_estimated_queued_samples,
-              (unsigned long)s_estimated_emitted_samples);
       stop_for_audio_error();
       return;
     }
@@ -396,20 +344,11 @@ static bool play_pattern(void) {
   s_mix_step_sample = 0;
   s_mix_step_remainder = 0;
   s_mix_step_length = next_step_samples(&s_mix_step_remainder);
-  s_playhead = 0;
-  s_visual_step_sample = 0;
-  s_visual_step_remainder = 0;
-  s_visual_step_length = next_step_samples(&s_visual_step_remainder);
-  s_visual_ms_remainder = 0;
-  s_visual_started = false;
-  time_ms(NULL, &s_visual_last_ms);
   s_pending_offset = 0;
   s_pending_length = 0;
   s_empty_write_count = 0;
   s_stream_bytes_written = 0;
   s_stream_zero_writes = 0;
-  s_estimated_queued_samples = 0;
-  s_estimated_emitted_samples = 0;
   if (!speaker_stream_open(SpeakerPcmFormat_8kHz_8bit, 76)) {
     s_playing = false;
     s_audio_error = true;
@@ -519,6 +458,11 @@ static void draw_sequencer(Layer *layer, GContext *ctx) {
   }
   draw_centered(ctx, header, GRect(0, 0, bounds.size.w, 20),
                 fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD), GColorWhite);
+  if (s_playing) {
+    // A static indicator confirms transport without a timing-sensitive grid animation.
+    graphics_context_set_fill_color(ctx, PBL_IF_BW_ELSE(GColorWhite, GColorGreen));
+    graphics_fill_circle(ctx, GPoint(bounds.size.w - 7, 9), 3);
+  }
   draw_centered(ctx, s_page == PageSynths ? "HLD ROW  DBL PITCH" : "HLD ROW  DBL BPM",
                 GRect(0, 19, bounds.size.w, 15),
                 fonts_get_system_font(FONT_KEY_GOTHIC_14), GColorLightGray);
@@ -552,11 +496,6 @@ static void draw_sequencer(Layer *layer, GContext *ctx) {
         graphics_context_set_stroke_color(ctx, GColorDarkGray);
         graphics_context_set_stroke_width(ctx, 1);
         graphics_draw_rect(ctx, GRect(x, y, cell_w, row_h - 5));
-      }
-      if (s_playing && step == s_playhead) {
-        graphics_context_set_stroke_color(ctx, GColorYellow);
-        graphics_context_set_stroke_width(ctx, 1);
-        graphics_draw_rect(ctx, GRect(x - 1, y - 1, cell_w + 2, row_h - 3));
       }
       if (selected) {
         graphics_context_set_stroke_color(ctx, GColorWhite);

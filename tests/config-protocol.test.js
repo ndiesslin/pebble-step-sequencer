@@ -12,7 +12,7 @@ assert(/defaultSettings/.test(pkjs), 'phone editor should start with the app def
 assert(/Save &amp; Close/.test(config), 'editor should offer one explicit close-to-save action');
 assert(/PCM underrun/.test(nativeCode) && /voice \* 5 \/ 2/.test(nativeCode), 'audio should log real underruns and use per-voice drum gains');
 assert(/MIX_BUFFER_SAMPLES 160/.test(nativeCode) && /MIX_PUMP_INTERVAL_MS 5/.test(nativeCode), 'audio should retain its proven full-quality stream block size');
-assert(/s_estimated_queued_samples/.test(nativeCode) && /update_visual_playhead/.test(nativeCode), 'playhead should model emitted PCM rather than queued writes');
+assert(/timing-sensitive grid animation/.test(nativeCode) && !/s_playhead/.test(nativeCode), 'playback should use a simple static status indicator');
 assert(/dict_write_uint16\(iter, MESSAGE_KEY_Pattern0/.test(nativeCode), 'watch reply must include drum patterns');
 assert(!/settingsRequestPart/.test(pkjs), 'opening Settings should not wait for a second state round-trip');
 assert(/cachedState/.test(config) && /disabled = true/.test(config), 'cached editor must be view-only');
