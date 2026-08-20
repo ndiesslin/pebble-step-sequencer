@@ -11,6 +11,7 @@ assert(/settingsSource = 'phone'/.test(pkjs), 'Settings should open immediately 
 assert(/defaultSettings/.test(pkjs), 'phone editor should start with the app defaults rather than blank patterns');
 assert(/Save &amp; Close/.test(config), 'editor should offer one explicit close-to-save action');
 assert(/PCM underrun/.test(nativeCode) && /voice \* 5 \/ 2/.test(nativeCode), 'audio should log real underruns and use per-voice drum gains');
+assert(/VISUAL_AUDIO_OFFSET_MS/.test(nativeCode) && /update_visual_playhead/.test(nativeCode), 'playhead should account for buffered speaker audio');
 assert(/dict_write_uint16\(iter, MESSAGE_KEY_Pattern0/.test(nativeCode), 'watch reply must include drum patterns');
 assert(!/settingsRequestPart/.test(pkjs), 'opening Settings should not wait for a second state round-trip');
 assert(/cachedState/.test(config) && /disabled = true/.test(config), 'cached editor must be view-only');
