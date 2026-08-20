@@ -30,9 +30,9 @@ extern uint32_t MESSAGE_KEY_SyncStatus;
 #define PERSIST_SYNTH_PATTERN_BASE 104
 #define PERSIST_SYNTH_NOTE_BASE 120
 #define PERSIST_BPM 110
-#define MIX_BUFFER_SAMPLES 80
-#define MIX_PRIME_BUFFERS 4
-#define MIX_PUMP_INTERVAL_MS 10
+#define MIX_BUFFER_SAMPLES 40
+#define MIX_PRIME_BUFFERS 8
+#define MIX_PUMP_INTERVAL_MS 5
 #define SYNTH_NOTE_COUNT 7
 
 static Window *s_window;
@@ -339,7 +339,7 @@ static void pump_audio(void *context) {
       return;
     }
   }
-  // One 10 ms block per 10 ms keeps the stream near its 40 ms safety cushion
+  // One 5 ms block per 5 ms keeps the stream near its 40 ms safety cushion
   // instead of letting the speaker queue run far ahead of the visual playhead.
   s_audio_timer = app_timer_register(MIX_PUMP_INTERVAL_MS, pump_audio, NULL);
 }
