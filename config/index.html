@@ -79,7 +79,7 @@
     var presets = {
       four: { patterns: [0x1111, 0x0404, 0x5555, 0x0000, 0x1111, 0x0000], notes: ['0000222200002222', '0000000000000000'], bpm: 120 },
       electro: { patterns: [0x1001, 0x0404, 0xaaaa, 0x0200, 0x1111, 0x8421], notes: ['0000222203334444', '0246024602460246'], bpm: 130 },
-      melody: { patterns: [0x1111, 0x0404, 0x5555, 0x0000, 0x1111, 0xffff], notes: ['0000222203334444', '0246024602460246'], bpm: 110 }
+      melody: { patterns: [0x1111, 0x0404, 0x5555, 0x0000, 0x1111, 0x8421], notes: ['0000222203334444', '0246024602460246'], bpm: 110 }
     };
     function setButtonActive(target, active) { if (active && !hasClass(target, 'active')) toggleClass(target, 'active'); if (!active && hasClass(target, 'active')) toggleClass(target, 'active'); }
     function applyPreset(preset) {
