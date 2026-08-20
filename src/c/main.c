@@ -30,8 +30,9 @@ extern uint32_t MESSAGE_KEY_SyncStatus;
 #define PERSIST_SYNTH_PATTERN_BASE 104
 #define PERSIST_SYNTH_NOTE_BASE 120
 #define PERSIST_BPM 110
-#define MIX_BUFFER_SAMPLES 160
-#define MIX_PRIME_BUFFERS 2
+#define MIX_BUFFER_SAMPLES 80
+#define MIX_PRIME_BUFFERS 4
+#define MIX_PUMP_INTERVAL_MS 10
 #define SYNTH_NOTE_COUNT 7
 
 static Window *s_window;
@@ -338,8 +339,9 @@ static void pump_audio(void *context) {
       return;
     }
   }
-  // A short refill cadence keeps enough queued PCM to bridge scheduler jitter without re-rendering.
-  s_audio_timer = app_timer_register(5, pump_audio, NULL);
+  // One 10 ms block per 10 ms keeps the stream near its 40 ms safety cushion
+  // instead of letting the speaker queue run far ahead of the visual playhead.
+  s_audio_timer = app_timer_register(MIX_PUMP_INTERVAL_MS, pump_audio, NULL);
 }
 
 static bool play_pattern(void) {
@@ -375,7 +377,7 @@ static bool play_pattern(void) {
   }
   s_audio_error = false;
   cancel_audio_timer();
-  s_audio_timer = app_timer_register(5, pump_audio, NULL);
+  s_audio_timer = app_timer_register(MIX_PUMP_INTERVAL_MS, pump_audio, NULL);
   return true;
 }
 
