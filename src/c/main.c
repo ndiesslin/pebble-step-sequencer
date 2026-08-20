@@ -57,6 +57,8 @@ static int8_t s_mix_buffer[MIX_BUFFER_SAMPLES];
 static uint16_t s_pending_offset;
 static uint16_t s_pending_length;
 static uint8_t s_empty_write_count;
+static uint32_t s_stream_bytes_written;
+static uint16_t s_stream_zero_writes;
 
 static const char *s_track_names[TRACK_COUNT] = { "KICK", "SNARE", "HAT", "RIM" };
 static const GColor s_track_colors[TRACK_COUNT] = {
@@ -237,7 +239,12 @@ static void render_mix(int8_t *buffer, uint16_t count) {
     int32_t mixed = 0;
     for (uint8_t track = 0; track < TRACK_COUNT; track++) {
       if (s_drum_pattern[track] & (1 << step)) {
-        mixed += drum_sample(track, position) * (track == 0 ? 2 : 1);
+        int32_t voice = drum_sample(track, position);
+        // The tiny speaker favors a clear kick attack; keep bright percussion below it.
+        if (track == 0) mixed += voice * 5 / 2;
+        else if (track == 2) mixed += voice * 2 / 3;
+        else if (track == 3) mixed += voice * 3 / 4;
+        else mixed += voice;
       }
     }
     for (uint8_t track = 0; track < SYNTH_TRACK_COUNT; track++) {
@@ -297,6 +304,9 @@ static uint16_t write_pending_audio(void) {
     s_pending_length -= written;
     advance_mix_position(written);
     s_empty_write_count = 0;
+    s_stream_bytes_written += written;
+  } else {
+    s_stream_zero_writes++;
   }
   return written;
 }
@@ -322,6 +332,8 @@ static void pump_audio(void *context) {
   if (write_pending_audio() == 0) {
     s_empty_write_count++;
     if (s_empty_write_count >= 8 && speaker_get_status() == SpeakerStatusIdle) {
+      APP_LOG(APP_LOG_LEVEL_ERROR, "PCM underrun: %lu bytes, %u zero writes",
+              (unsigned long)s_stream_bytes_written, s_stream_zero_writes);
       stop_for_audio_error();
       return;
     }
@@ -340,6 +352,8 @@ static bool play_pattern(void) {
   s_pending_offset = 0;
   s_pending_length = 0;
   s_empty_write_count = 0;
+  s_stream_bytes_written = 0;
+  s_stream_zero_writes = 0;
   if (!speaker_stream_open(SpeakerPcmFormat_8kHz_8bit, 76)) {
     s_playing = false;
     s_audio_error = true;
