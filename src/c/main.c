@@ -11,8 +11,6 @@ extern uint32_t MESSAGE_KEY_SynthNotes0;
 extern uint32_t MESSAGE_KEY_SynthNotes1;
 extern uint32_t MESSAGE_KEY_Bpm;
 extern uint32_t MESSAGE_KEY_Transport;
-extern uint32_t MESSAGE_KEY_SyncId;
-extern uint32_t MESSAGE_KEY_SyncStatus;
 
 #define TRACK_COUNT 4
 #define SYNTH_TRACK_COUNT 2
@@ -49,11 +47,7 @@ static uint16_t s_bpm;
 static bool s_playing;
 static bool s_audio_error;
 static AppTimer *s_audio_timer;
-static AppTimer *s_sync_ack_timer;
 static bool s_stream_open;
-static bool s_sync_ack_pending;
-static uint32_t s_pending_sync_id;
-static uint8_t s_sync_ack_retries;
 static uint8_t s_mix_step;
 static uint16_t s_mix_step_sample;
 static uint16_t s_mix_step_length;
@@ -607,39 +601,6 @@ static void window_load(Window *window) {
 
 static void window_unload(Window *window) { layer_destroy(s_canvas); }
 
-static void try_send_sync_ack(void *context) {
-  s_sync_ack_timer = NULL;
-  if (!s_sync_ack_pending) return;
-  DictionaryIterator *iter;
-  if (app_message_outbox_begin(&iter) == APP_MSG_OK) {
-    dict_write_uint32(iter, MESSAGE_KEY_SyncId, s_pending_sync_id);
-    dict_write_uint8(iter, MESSAGE_KEY_SyncStatus, 1);
-    dict_write_end(iter);
-    if (app_message_outbox_send() == APP_MSG_OK) {
-      s_sync_ack_pending = false;
-      s_sync_ack_retries = 0;
-      return;
-    }
-  }
-  if (s_sync_ack_retries++ < 10) {
-    s_sync_ack_timer = app_timer_register(100, try_send_sync_ack, NULL);
-  } else {
-    APP_LOG(APP_LOG_LEVEL_ERROR, "Unable to acknowledge settings save");
-    s_sync_ack_pending = false;
-  }
-}
-
-static void queue_sync_ack(uint32_t sync_id) {
-  if (s_sync_ack_timer) {
-    app_timer_cancel(s_sync_ack_timer);
-    s_sync_ack_timer = NULL;
-  }
-  s_pending_sync_id = sync_id;
-  s_sync_ack_pending = true;
-  s_sync_ack_retries = 0;
-  try_send_sync_ack(NULL);
-}
-
 static bool tuple_to_uint32(const Tuple *tuple, uint32_t *value) {
   if (!tuple || !value || (tuple->type != TUPLE_UINT && tuple->type != TUPLE_INT)) return false;
   if (tuple->type == TUPLE_INT) {
@@ -677,7 +638,6 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     dict_find(iter, MESSAGE_KEY_SynthNotes0), dict_find(iter, MESSAGE_KEY_SynthNotes1),
   };
   Tuple *transport = dict_find(iter, MESSAGE_KEY_Transport);
-  Tuple *sync_id = dict_find(iter, MESSAGE_KEY_SyncId);
   uint8_t changed_tracks = 0;
   uint8_t changed_synth_tracks = 0;
   bool bpm_changed = false;
@@ -729,8 +689,6 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   }
   uint32_t requested_transport;
   if (tuple_to_uint32(transport, &requested_transport)) set_playing(requested_transport != 0);
-  uint32_t requested_sync_id;
-  if (tuple_to_uint32(sync_id, &requested_sync_id)) queue_sync_ack(requested_sync_id);
 }
 
 static void load_state(void) {
@@ -773,14 +731,13 @@ static void init(void) {
   window_set_click_config_provider(s_window, click_config_provider);
   speaker_set_finish_callback(playback_finished, NULL);
   app_message_register_inbox_received(inbox_received);
-  // The phone editor sends one durable setting at a time and waits for a watch acknowledgement.
+  // The phone editor sends one durable setting at a time, paced for the physical connection.
   app_message_open(256, 256);
   window_stack_push(s_window, true);
 }
 
 static void deinit(void) {
   cancel_audio_timer();
-  if (s_sync_ack_timer) app_timer_cancel(s_sync_ack_timer);
   close_speaker_stream();
   speaker_set_finish_callback(NULL, NULL);
   app_message_deregister_callbacks();

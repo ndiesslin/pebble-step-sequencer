@@ -14,7 +14,7 @@
     "targetPlatforms": ["flint", "emery"],
     "watchapp": { "watchface": false },
     "capabilities": ["configurable"],
-    "messageKeys": ["Pattern0", "Pattern1", "Pattern2", "Pattern3", "Synth0", "Synth1", "SynthNotes0", "SynthNotes1", "Bpm", "Transport", "SyncId", "SyncStatus"],
+    "messageKeys": ["Pattern0", "Pattern1", "Pattern2", "Pattern3", "Synth0", "Synth1", "SynthNotes0", "SynthNotes1", "Bpm", "Transport"],
     "resources": {
       "media": [
         {
