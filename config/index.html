@@ -18,7 +18,6 @@
     .track-2 button.active { background: #168a57; } .track-3 button.active { background: #007caa; }
     .track-4 button.active { background: #8547c7; } .track-5 button.active { background: #008fc4; }
     .pitch { margin-top: -.7rem; } .pitch button { background: #252a33; color: #d9dfeb; font-size: .78rem; }
-    .pitch-slider { width: 100%; min-height: 3rem; margin: 0; accent-color: #00a8ff; }
     .presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; margin: 1rem 0; }
     .presets button { min-height: 2.6rem; background: #252a33; font-size: .82rem; }
     .presets #clear { background: #632a32; }
@@ -42,11 +41,9 @@
     function getParam(name) { var q = location.search.substring(1).split('&'), i, pair; for (i = 0; i < q.length; i++) { pair = q[i].split('='); if (decodeURIComponent(pair[0]) === name) return decodeURIComponent((pair[1] || '').replace(/\+/g, ' ')); } return ''; }
     function hasClass(node, name) { return (' ' + node.className + ' ').indexOf(' ' + name + ' ') !== -1; }
     function toggleClass(node, name) { node.className = hasClass(node, name) ? node.className.replace(new RegExp('(^|\\s)' + name + '(?=\\s|$)', 'g'), ' ').replace(/^\s+|\s+$/g, '') : node.className + ' ' + name; }
-    var names = ['Kick', 'Snare', 'Hi-hat', 'Rim', 'Bass', 'Lead'], noteNames = [['C4', 'C#4', 'D4', 'D#4', 'E4', 'F4', 'F#4', 'G4', 'G#4', 'A4', 'A#4', 'B4'], ['C5', 'C#5', 'D5', 'D#5', 'E5', 'F5', 'F#5', 'G5', 'G#5', 'A5', 'A#5', 'B5']], state = {}, tracks = document.getElementById('tracks'), returnTo = getParam('return_to') || 'pebblejs://close#', track, step, row, label, cell, button, sequenceRows = [], pitchButtons = [[], []], synthNotes = [], playing, transportTouched = false;
+    var names = ['Kick', 'Snare', 'Hi-hat', 'Rim', 'Bass', 'Lead'], noteNames = [['C4', 'D4', 'E4', 'G4', 'A4', 'B4', 'C5'], ['C5', 'D5', 'E5', 'G5', 'A5', 'B5', 'C6']], state = {}, tracks = document.getElementById('tracks'), returnTo = getParam('return_to') || 'pebblejs://close#', track, step, row, label, cell, button, sequenceRows = [], pitchButtons = [[], []], synthNotes = [], playing, transportTouched = false;
     try { state = JSON.parse(getParam('state') || '{}'); } catch (error) { state = {}; }
-    function noteValue(value) { return value === 'A' ? 10 : (value === 'B' ? 11 : Number(value)); }
-    function noteCode(value) { return value === 10 ? 'A' : (value === 11 ? 'B' : String(value)); }
-    for (track = 0; track < 2; track++) { synthNotes[track] = (/^[0-9AB]{16}$/.test(state['SynthNotes' + track] || '') ? state['SynthNotes' + track] : '0000000000000000').split(''); }
+    for (track = 0; track < 2; track++) { synthNotes[track] = (/^[0-6]{16}$/.test(state['SynthNotes' + track] || '') ? state['SynthNotes' + track] : '0000000000000000').split(''); }
     var cachedState = getParam('source') === 'cached';
     if (cachedState) document.getElementById('notice').textContent = 'Watch unavailable — the saved phone copy is view-only. Close Settings, reconnect the watch, then reopen.';
     if (getParam('source') === 'phone') document.getElementById('notice').textContent = 'Editing the saved phone copy. Save sends it to Pebble Studio on your open watch.';
@@ -68,18 +65,14 @@
         for (step = 0; step < 16; step++) {
           cell = document.createElement('span'); cell.className = 'step' + (step >= 4 ? ' beat' : ''); button = document.createElement('button');
           button.type = 'button'; button.setAttribute('data-track', track - 4); button.setAttribute('data-step', step);
-          button.textContent = noteNames[track - 4][noteValue(synthNotes[track - 4][step])];
-          button.onclick = function () { var t = Number(this.getAttribute('data-track')), s = Number(this.getAttribute('data-step')); if (this.getAttribute('data-held') === '1') { this.setAttribute('data-held', '0'); return; } setPitch(t, s, (noteValue(synthNotes[t][s]) + 1) % noteNames[t].length, this); };
-          button.onmousedown = button.ontouchstart = function () { var target = this; target.holdTimer = setTimeout(function () { openPitchSlider(target); }, 500); };
-          button.onmouseup = button.onmouseleave = button.ontouchend = button.ontouchcancel = function () { if (this.holdTimer) { clearTimeout(this.holdTimer); this.holdTimer = null; } };
+          button.textContent = noteNames[track - 4][Number(synthNotes[track - 4][step])];
+          button.onclick = function () { var t = Number(this.getAttribute('data-track')), s = Number(this.getAttribute('data-step')), n = (Number(synthNotes[t][s]) + 1) % noteNames[t].length; synthNotes[t][s] = n; this.textContent = noteNames[t][n]; };
           pitchButtons[track - 4].push(button);
           cell.appendChild(button); row.appendChild(cell);
         }
         tracks.appendChild(row);
       }
     }
-    function setPitch(trackIndex, stepIndex, value, target) { synthNotes[trackIndex][stepIndex] = noteCode(value); target.textContent = noteNames[trackIndex][value]; }
-    function openPitchSlider(target) { var t = Number(target.getAttribute('data-track')), s = Number(target.getAttribute('data-step')), slider = document.createElement('input'); target.setAttribute('data-held', '1'); slider.type = 'range'; slider.min = 0; slider.max = 11; slider.step = 1; slider.value = noteValue(synthNotes[t][s]); slider.className = 'pitch-slider'; slider.oninput = function () { setPitch(t, s, Number(slider.value), target); }; slider.onchange = slider.onblur = function () { if (slider.parentNode) slider.parentNode.removeChild(slider); target.style.display = ''; }; target.style.display = 'none'; target.parentNode.appendChild(slider); slider.focus(); }
     var bpm = document.getElementById('bpm'), tempo = document.getElementById('tempo-value'); bpm.value = state.Bpm || 120; tempo.textContent = bpm.value;
     bpm.onchange = bpm.oninput = function () { tempo.textContent = bpm.value; };
     var volume = document.getElementById('volume'), volumeValue = document.getElementById('volume-value'), drive = document.getElementById('drive'), driveValue = document.getElementById('drive-value'), space = document.getElementById('space'), spaceValue = document.getElementById('space-value');
