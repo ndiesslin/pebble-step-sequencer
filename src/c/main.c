@@ -11,7 +11,6 @@ extern uint32_t MESSAGE_KEY_SynthNotes0;
 extern uint32_t MESSAGE_KEY_SynthNotes1;
 extern uint32_t MESSAGE_KEY_Bpm;
 extern uint32_t MESSAGE_KEY_Transport;
-extern uint32_t MESSAGE_KEY_RequestSettings;
 extern uint32_t MESSAGE_KEY_SyncId;
 extern uint32_t MESSAGE_KEY_SyncStatus;
 
@@ -29,6 +28,7 @@ extern uint32_t MESSAGE_KEY_SyncStatus;
 #define PERSIST_PATTERN_BASE 100
 #define PERSIST_SYNTH_PATTERN_BASE 104
 #define PERSIST_SYNTH_NOTE_BASE 120
+#define PERSIST_SYNTH_NOTES_BLOB_BASE 130
 #define PERSIST_BPM 110
 #define MIX_BUFFER_SAMPLES 160
 #define MIX_PRIME_BUFFERS 2
@@ -49,6 +49,11 @@ static uint16_t s_bpm;
 static bool s_playing;
 static bool s_audio_error;
 static AppTimer *s_audio_timer;
+static AppTimer *s_sync_ack_timer;
+static bool s_stream_open;
+static bool s_sync_ack_pending;
+static uint32_t s_pending_sync_id;
+static uint8_t s_sync_ack_retries;
 static uint8_t s_mix_step;
 static uint16_t s_mix_step_sample;
 static uint16_t s_mix_step_length;
@@ -181,6 +186,13 @@ static void cancel_audio_timer(void) {
   }
 }
 
+static void close_speaker_stream(void) {
+  if (!s_stream_open) return;
+  speaker_stop();
+  speaker_stream_close();
+  s_stream_open = false;
+}
+
 static void save_state(uint8_t changed_drum_tracks, uint8_t changed_synth_tracks,
                        bool bpm_changed) {
   for (uint8_t track = 0; track < TRACK_COUNT; track++) {
@@ -194,6 +206,11 @@ static void save_state(uint8_t changed_drum_tracks, uint8_t changed_synth_tracks
     }
   }
   if (bpm_changed) persist_write_int(PERSIST_BPM, s_bpm);
+}
+
+static void save_synth_notes(uint8_t track) {
+  persist_write_data(PERSIST_SYNTH_NOTES_BLOB_BASE + track,
+                     s_synth_note_index[track], STEP_COUNT);
 }
 
 static uint16_t next_step_samples(uint16_t *remainder) {
@@ -312,7 +329,7 @@ static void stop_for_audio_error(void) {
   s_audio_error = true;
   s_pending_length = 0;
   cancel_audio_timer();
-  speaker_stop();
+  close_speaker_stream();
   redraw();
 }
 
@@ -355,6 +372,7 @@ static bool play_pattern(void) {
     redraw();
     return false;
   }
+  s_stream_open = true;
   uint32_t queued = 0;
   for (uint8_t buffer = 0; buffer < MIX_PRIME_BUFFERS; buffer++) {
     uint16_t written = write_pending_audio();
@@ -362,7 +380,7 @@ static bool play_pattern(void) {
     if (written == 0 || s_pending_length != 0) break;
   }
   if (queued == 0) {
-    speaker_stream_close();
+    close_speaker_stream();
     s_playing = false;
     s_audio_error = true;
     redraw();
@@ -383,7 +401,7 @@ static void set_playing(bool playing) {
   } else {
     cancel_audio_timer();
     s_pending_length = 0;
-    speaker_stop();
+    close_speaker_stream();
   }
   redraw();
 }
@@ -531,7 +549,7 @@ static void up_click(ClickRecognizerRef recognizer, void *context) {
       uint8_t *note = &s_synth_note_index[s_cursor_track][s_cursor_step];
       if (*note < SYNTH_NOTE_COUNT - 1) {
         (*note)++;
-        persist_write_int(PERSIST_SYNTH_NOTE_BASE + s_cursor_track * STEP_COUNT + s_cursor_step, *note);
+        save_synth_notes(s_cursor_track);
       }
     } else if (s_bpm < MAX_BPM) {
       s_bpm += 5;
@@ -549,7 +567,7 @@ static void down_click(ClickRecognizerRef recognizer, void *context) {
       uint8_t *note = &s_synth_note_index[s_cursor_track][s_cursor_step];
       if (*note > 0) {
         (*note)--;
-        persist_write_int(PERSIST_SYNTH_NOTE_BASE + s_cursor_track * STEP_COUNT + s_cursor_step, *note);
+        save_synth_notes(s_cursor_track);
       }
     } else if (s_bpm > MIN_BPM) {
       s_bpm -= 5;
@@ -589,28 +607,37 @@ static void window_load(Window *window) {
 
 static void window_unload(Window *window) { layer_destroy(s_canvas); }
 
-static void send_settings(void) {
+static void try_send_sync_ack(void *context) {
+  s_sync_ack_timer = NULL;
+  if (!s_sync_ack_pending) return;
   DictionaryIterator *iter;
-  if (app_message_outbox_begin(&iter) != APP_MSG_OK) return;
-  dict_write_uint16(iter, MESSAGE_KEY_Pattern0, s_drum_pattern[0]);
-  dict_write_uint16(iter, MESSAGE_KEY_Pattern1, s_drum_pattern[1]);
-  dict_write_uint16(iter, MESSAGE_KEY_Pattern2, s_drum_pattern[2]);
-  dict_write_uint16(iter, MESSAGE_KEY_Pattern3, s_drum_pattern[3]);
-  dict_write_uint16(iter, MESSAGE_KEY_Synth0, s_synth_pattern[0]);
-  dict_write_uint16(iter, MESSAGE_KEY_Synth1, s_synth_pattern[1]);
-  dict_write_uint16(iter, MESSAGE_KEY_Bpm, s_bpm);
-  dict_write_uint8(iter, MESSAGE_KEY_Transport, s_playing ? 1 : 0);
-  dict_write_end(iter);
-  app_message_outbox_send();
+  if (app_message_outbox_begin(&iter) == APP_MSG_OK) {
+    dict_write_uint32(iter, MESSAGE_KEY_SyncId, s_pending_sync_id);
+    dict_write_uint8(iter, MESSAGE_KEY_SyncStatus, 1);
+    dict_write_end(iter);
+    if (app_message_outbox_send() == APP_MSG_OK) {
+      s_sync_ack_pending = false;
+      s_sync_ack_retries = 0;
+      return;
+    }
+  }
+  if (s_sync_ack_retries++ < 10) {
+    s_sync_ack_timer = app_timer_register(100, try_send_sync_ack, NULL);
+  } else {
+    APP_LOG(APP_LOG_LEVEL_ERROR, "Unable to acknowledge settings save");
+    s_sync_ack_pending = false;
+  }
 }
 
-static void send_sync_ack(uint32_t sync_id) {
-  DictionaryIterator *iter;
-  if (app_message_outbox_begin(&iter) != APP_MSG_OK) return;
-  dict_write_uint32(iter, MESSAGE_KEY_SyncId, sync_id);
-  dict_write_uint8(iter, MESSAGE_KEY_SyncStatus, 1);
-  dict_write_end(iter);
-  app_message_outbox_send();
+static void queue_sync_ack(uint32_t sync_id) {
+  if (s_sync_ack_timer) {
+    app_timer_cancel(s_sync_ack_timer);
+    s_sync_ack_timer = NULL;
+  }
+  s_pending_sync_id = sync_id;
+  s_sync_ack_pending = true;
+  s_sync_ack_retries = 0;
+  try_send_sync_ack(NULL);
 }
 
 static bool tuple_to_uint32(const Tuple *tuple, uint32_t *value) {
@@ -638,12 +665,6 @@ static bool tuple_to_synth_notes(const Tuple *tuple, uint8_t values[STEP_COUNT])
 }
 
 static void inbox_received(DictionaryIterator *iter, void *context) {
-  Tuple *request_settings = dict_find(iter, MESSAGE_KEY_RequestSettings);
-  if (request_settings) {
-    send_settings();
-    return;
-  }
-
   Tuple *pattern[TRACK_COUNT] = {
     dict_find(iter, MESSAGE_KEY_Pattern0), dict_find(iter, MESSAGE_KEY_Pattern1),
     dict_find(iter, MESSAGE_KEY_Pattern2), dict_find(iter, MESSAGE_KEY_Pattern3),
@@ -680,12 +701,16 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   for (uint8_t track = 0; track < SYNTH_TRACK_COUNT; track++) {
     uint8_t requested_notes[STEP_COUNT];
     if (tuple_to_synth_notes(synth_notes[track], requested_notes)) {
+      bool track_notes_changed = false;
       for (uint8_t step = 0; step < STEP_COUNT; step++) {
         if (s_synth_note_index[track][step] != requested_notes[step]) {
           s_synth_note_index[track][step] = requested_notes[step];
-          persist_write_int(PERSIST_SYNTH_NOTE_BASE + track * STEP_COUNT + step, requested_notes[step]);
-          synth_notes_changed = true;
+          track_notes_changed = true;
         }
+      }
+      if (track_notes_changed) {
+        save_synth_notes(track);
+        synth_notes_changed = true;
       }
     }
   }
@@ -705,7 +730,7 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   uint32_t requested_transport;
   if (tuple_to_uint32(transport, &requested_transport)) set_playing(requested_transport != 0);
   uint32_t requested_sync_id;
-  if (tuple_to_uint32(sync_id, &requested_sync_id)) send_sync_ack(requested_sync_id);
+  if (tuple_to_uint32(sync_id, &requested_sync_id)) queue_sync_ack(requested_sync_id);
 }
 
 static void load_state(void) {
@@ -718,11 +743,20 @@ static void load_state(void) {
   for (uint8_t track = 0; track < SYNTH_TRACK_COUNT; track++) {
     s_synth_pattern[track] = persist_exists(PERSIST_SYNTH_PATTERN_BASE + track)
       ? (uint16_t)persist_read_int(PERSIST_SYNTH_PATTERN_BASE + track) : synth_defaults[track];
-    for (uint8_t step = 0; step < STEP_COUNT; step++) {
-      int stored_note = persist_exists(PERSIST_SYNTH_NOTE_BASE + track * STEP_COUNT + step)
-        ? persist_read_int(PERSIST_SYNTH_NOTE_BASE + track * STEP_COUNT + step) : 0;
-      s_synth_note_index[track][step] = stored_note >= 0 && stored_note < SYNTH_NOTE_COUNT
-        ? stored_note : 0;
+    int blob_size = persist_get_size(PERSIST_SYNTH_NOTES_BLOB_BASE + track);
+    if (blob_size == STEP_COUNT &&
+        persist_read_data(PERSIST_SYNTH_NOTES_BLOB_BASE + track, s_synth_note_index[track], STEP_COUNT) == STEP_COUNT) {
+      for (uint8_t step = 0; step < STEP_COUNT; step++) {
+        if (s_synth_note_index[track][step] >= SYNTH_NOTE_COUNT) s_synth_note_index[track][step] = 0;
+      }
+    } else {
+      for (uint8_t step = 0; step < STEP_COUNT; step++) {
+        int stored_note = persist_exists(PERSIST_SYNTH_NOTE_BASE + track * STEP_COUNT + step)
+          ? persist_read_int(PERSIST_SYNTH_NOTE_BASE + track * STEP_COUNT + step) : 0;
+        s_synth_note_index[track][step] = stored_note >= 0 && stored_note < SYNTH_NOTE_COUNT
+          ? stored_note : 0;
+      }
+      save_synth_notes(track);
     }
   }
   int stored_bpm = persist_exists(PERSIST_BPM) ? persist_read_int(PERSIST_BPM) : DEFAULT_BPM;
@@ -739,14 +773,15 @@ static void init(void) {
   window_set_click_config_provider(s_window, click_config_provider);
   speaker_set_finish_callback(playback_finished, NULL);
   app_message_register_inbox_received(inbox_received);
-  // The phone editor sends six patterns, 32 pitch values, tempo, and transport together.
+  // The phone editor sends one durable setting at a time and waits for a watch acknowledgement.
   app_message_open(256, 256);
   window_stack_push(s_window, true);
 }
 
 static void deinit(void) {
-  speaker_stop();
   cancel_audio_timer();
+  if (s_sync_ack_timer) app_timer_cancel(s_sync_ack_timer);
+  close_speaker_stream();
   speaker_set_finish_callback(NULL, NULL);
   app_message_deregister_callbacks();
   window_destroy(s_window);

@@ -5,11 +5,7 @@ var keys = require('message_keys');
 var CONFIG_URL = 'https://ndiesslin.github.io/pebble-step-sequencer/';
 var savedSettings = {};
 var waitingToOpen = false;
-var fallbackTimer = null;
-var settingsRequestFailed = false;
-var settingsRequestAttempts = 0;
-var settingsSource = 'phone';
-var settingsNotice = '';
+var pendingSave = null;
 
 var defaultSettings = {
   Pattern0: 0x1111, Pattern1: 0x2222, Pattern2: 0x4444, Pattern3: 0x8888,
@@ -50,20 +46,10 @@ function normalise(settings) {
 function openConfiguration() {
   if (!waitingToOpen) return;
   waitingToOpen = false;
-  if (fallbackTimer) clearTimeout(fallbackTimer);
   var separator = CONFIG_URL.indexOf('?') === -1 ? '?' : '&';
   var state = encodeURIComponent(JSON.stringify(savedSettings));
   Pebble.openURL(CONFIG_URL + separator + 'state=' + state +
-    '&source=' + (settingsRequestFailed ? 'cached' : settingsSource) +
-    '&notice=' + encodeURIComponent(settingsNotice));
-}
-
-function reopenEditor(notice) {
-  waitingToOpen = true;
-  settingsRequestFailed = false;
-  settingsSource = 'phone';
-  settingsNotice = notice;
-  openConfiguration();
+    '&source=phone&notice=');
 }
 
 function sendSettings(settings) {
@@ -75,26 +61,58 @@ function sendSettings(settings) {
   message = {}; message[keys.Bpm] = settings.Bpm; messages.push(message);
   for (i = 0; i < 2; i++) { message = {}; message[keys['SynthNotes' + i]] = settings['SynthNotes' + i]; messages.push(message); }
   if (shouldSendTransport) { message = {}; message[keys.Transport] = settings.Transport; messages.push(message); }
-  function sendNext(index, attempt) {
-    if (index >= messages.length) {
-      savedSettings = settings;
-      localStorage.setItem('pebbleStudioSettings', JSON.stringify(savedSettings));
-      console.log('Pebble Studio settings sent to watch.');
-      return;
-    }
-    Pebble.sendAppMessage(messages[index], function () {
-      // Small pacing avoids filling the watch's one-message inbox while it persists each field.
-      setTimeout(function () { sendNext(index + 1, 0); }, 120);
-    }, function (error) {
-      if (attempt < 2) {
-        console.log('Retrying Pebble Studio setting ' + index + ': ' + JSON.stringify(error));
-        setTimeout(function () { sendNext(index, attempt + 1); }, 200);
-      } else {
-        console.log('Unable to save Pebble Studio setting ' + index + ': ' + JSON.stringify(error));
-      }
-    });
+  pendingSave = {
+    settings: settings,
+    messages: messages,
+    index: 0,
+    attempt: 0,
+    syncBase: Date.now() % 2000000000,
+    ackTimer: null
+  };
+  sendPendingSave();
+}
+
+function finishPendingSave() {
+  var save = pendingSave;
+  if (!save) return;
+  if (save.ackTimer) clearTimeout(save.ackTimer);
+  savedSettings = save.settings;
+  localStorage.setItem('pebbleStudioSettings', JSON.stringify(savedSettings));
+  pendingSave = null;
+  console.log('Pebble Studio settings saved on watch.');
+}
+
+function retryPendingSave(reason) {
+  var save = pendingSave;
+  if (!save) return;
+  if (save.ackTimer) clearTimeout(save.ackTimer);
+  if (save.attempt++ < 2) {
+    console.log('Retrying Pebble Studio setting ' + save.index + ': ' + reason);
+    setTimeout(sendPendingSave, 200);
+  } else {
+    console.log('Unable to save Pebble Studio setting ' + save.index + ': ' + reason);
+    pendingSave = null;
   }
-  sendNext(0, 0);
+}
+
+function sendPendingSave() {
+  var save = pendingSave;
+  if (!save) return;
+  if (save.index >= save.messages.length) {
+    finishPendingSave();
+    return;
+  }
+  var payload = save.messages[save.index];
+  var expectedIndex = save.index;
+  payload[keys.SyncId] = save.syncBase + expectedIndex;
+  Pebble.sendAppMessage(payload, function () {
+    if (pendingSave !== save || save.index !== expectedIndex) return;
+    save.ackTimer = setTimeout(function () {
+      if (pendingSave === save) retryPendingSave('watch acknowledgement timed out');
+    }, 2000);
+  }, function (error) {
+    if (pendingSave === save) retryPendingSave(JSON.stringify(error));
+  });
 }
 
 Pebble.addEventListener('ready', function () {
@@ -106,25 +124,19 @@ Pebble.addEventListener('showConfiguration', function () {
   // The Pebble mobile configuration bridge does not reliably deliver watch-to-phone
   // replies on every Dev Connection. Open immediately from the safe phone copy;
   // saves still use the acknowledged phone-to-watch protocol below.
-  settingsRequestFailed = false;
-  settingsSource = 'phone';
-  settingsNotice = '';
   savedSettings = normalise(savedSettings);
   openConfiguration();
 });
 
 Pebble.addEventListener('appmessage', function (event) {
   var payload = event.payload;
-  if (payload[keys.Pattern0] === undefined) return;
-  savedSettings = normalise({
-    Pattern0: payload[keys.Pattern0], Pattern1: payload[keys.Pattern1],
-    Pattern2: payload[keys.Pattern2], Pattern3: payload[keys.Pattern3],
-    Synth0: payload[keys.Synth0], Synth1: payload[keys.Synth1],
-    SynthNotes0: payload[keys.SynthNotes0], SynthNotes1: payload[keys.SynthNotes1],
-    Bpm: payload[keys.Bpm], Transport: payload[keys.Transport]
-  });
-  localStorage.setItem('pebbleStudioSettings', JSON.stringify(savedSettings));
-  openConfiguration();
+  var save = pendingSave;
+  if (!save || payload[keys.SyncStatus] !== 1 ||
+      payload[keys.SyncId] !== save.syncBase + save.index) return;
+  if (save.ackTimer) clearTimeout(save.ackTimer);
+  save.index++;
+  save.attempt = 0;
+  setTimeout(sendPendingSave, 0);
 });
 
 Pebble.addEventListener('webviewclosed', function (event) {

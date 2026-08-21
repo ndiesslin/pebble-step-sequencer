@@ -42,7 +42,7 @@ It requires Pebble SDK 4.9 or newer because that is when the Speaker API arrived
 | Hold Select | Start / stop playback |
 | Back | Exit the app |
 
-The Drum page uses one-shot 8 kHz PCM samples generated on the watch: red is a pitch-dropping Kick, orange is a noise-and-body Snare, green is a filtered-noise Hi-hat, and blue is a click-and-tone Rim shot. The Synth page uses an audible C4–C5 low-synth layer and C5–C6 Lead, deliberately shifted above the Pebble speaker's weak low end. Double Up/Down changes the selected synth step through a compact C-major scale; the current note appears in the header. Playback uses a streamed PCM mixer, so all four drum voices and both synth voices play together. Each lit cell plays a hit or note; unlit cells are rests. Patterns and tempo persist on the watch. A yellow outline follows playback; the white outline is the edit cursor.
+The Drum page uses one-shot 8 kHz PCM samples generated on the watch: red is a pitch-dropping Kick, orange is a noise-and-body Snare, green is a filtered-noise Hi-hat, and blue is a click-and-tone Rim shot. The Synth page uses an audible C4–C5 low-synth layer and C5–C6 Lead, deliberately shifted above the Pebble speaker's weak low end. Double Up/Down changes the selected synth step through a compact C-major scale; the current note appears in the header. Playback uses a streamed PCM mixer, so all four drum voices and both synth voices play together. Each lit cell plays a hit or note; unlit cells are rests. Patterns and tempo persist on the watch. A small green dot (white on Pebble 2) indicates playback; the white outline is the edit cursor.
 
 Every 16-step row is one 4/4 bar. A divider after steps 4, 8, and 12 marks the four beats on both the watch and phone editor.
 
@@ -66,7 +66,7 @@ Use a physical Pebble 2 Duo or Pebble Time 2 for audio. The emulator is useful f
 
 ## Design notes
 
-The app mixes all four drum voices and both synth voices into an 8 kHz PCM stream on the watch. A small queued buffer bridges scheduler jitter, while a separate elapsed-time clock keeps the playhead aligned with audible playback. Edits are picked up at the next generated audio buffer rather than restarting the stream. A failed or preempted stream changes the header to `AUDIO ERROR` and stops transport. System speaker mute / Quiet Time applies normally; firmware controls it and this SDK revision does not expose its mute state to the app.
+The app mixes all four drum voices and both synth voices into an 8 kHz PCM stream on the watch. A small queued buffer bridges scheduler jitter and the static playback indicator avoids competing with audio processing. Edits are picked up at the next generated audio buffer rather than restarting the stream. A failed or preempted stream changes the header to `AUDIO ERROR` and stops transport. System speaker mute / Quiet Time applies normally; firmware controls it and this SDK revision does not expose its mute state to the app.
 
 ## Sources
 
