@@ -15,6 +15,8 @@ assert(/MIX_BUFFER_SAMPLES 160/.test(nativeCode) && /MIX_PUMP_INTERVAL_MS 5/.tes
 assert(/timing-sensitive grid animation/.test(nativeCode) && !/s_playhead/.test(nativeCode), 'playback should use a simple static status indicator');
 assert(/close_speaker_stream/.test(nativeCode) && /speaker_stream_close\(\)/.test(nativeCode), 'PCM streams should close on stop and teardown');
 assert(/persist_write_data\(PERSIST_SYNTH_NOTES_BLOB_BASE/.test(nativeCode), 'synth note edits should persist as one compact track blob');
+assert(/MESSAGE_KEY_Volume/.test(nativeCode) && /MESSAGE_KEY_Drive/.test(nativeCode) && /MESSAGE_KEY_Space/.test(nativeCode), 'watch should accept all three effect controls');
+assert(/id="volume"/.test(config) && /id="drive"/.test(config) && /id="space"/.test(config), 'editor should expose the three effect sliders');
 assert(!/RequestSettings/.test(nativeCode), 'obsolete watch-to-phone settings request should be removed');
 assert(!/settingsRequestPart/.test(pkjs), 'opening Settings should not wait for a second state round-trip');
 assert(/cachedState/.test(config) && /disabled = true/.test(config), 'cached editor must be view-only');

@@ -11,6 +11,9 @@ extern uint32_t MESSAGE_KEY_SynthNotes0;
 extern uint32_t MESSAGE_KEY_SynthNotes1;
 extern uint32_t MESSAGE_KEY_Bpm;
 extern uint32_t MESSAGE_KEY_Transport;
+extern uint32_t MESSAGE_KEY_Volume;
+extern uint32_t MESSAGE_KEY_Drive;
+extern uint32_t MESSAGE_KEY_Space;
 
 #define TRACK_COUNT 4
 #define SYNTH_TRACK_COUNT 2
@@ -28,14 +31,20 @@ extern uint32_t MESSAGE_KEY_Transport;
 #define PERSIST_SYNTH_NOTE_BASE 120
 #define PERSIST_SYNTH_NOTES_BLOB_BASE 130
 #define PERSIST_BPM 110
+#define PERSIST_VOLUME 111
+#define PERSIST_DRIVE 112
+#define PERSIST_SPACE 113
 #define MIX_BUFFER_SAMPLES 160
 #define MIX_PRIME_BUFFERS 2
 #define MIX_PUMP_INTERVAL_MS 5
 #define SYNTH_NOTE_COUNT 7
+#define EFFECT_COUNT 3
+#define SPACE_DELAY_SAMPLES 256
+#define DEFAULT_VOLUME 90
 
 static Window *s_window;
 static Layer *s_canvas;
-typedef enum { PageDrums, PageSynths } SequencerPage;
+typedef enum { PageDrums, PageSynths, PageEffects } SequencerPage;
 
 static uint16_t s_drum_pattern[TRACK_COUNT];
 static uint16_t s_synth_pattern[SYNTH_TRACK_COUNT];
@@ -44,6 +53,9 @@ static SequencerPage s_page;
 static uint8_t s_cursor_track;
 static uint8_t s_cursor_step;
 static uint16_t s_bpm;
+static uint8_t s_volume;
+static uint8_t s_drive;
+static uint8_t s_space;
 static bool s_playing;
 static bool s_audio_error;
 static AppTimer *s_audio_timer;
@@ -58,6 +70,8 @@ static uint16_t s_pending_length;
 static uint8_t s_empty_write_count;
 static uint32_t s_stream_bytes_written;
 static uint16_t s_stream_zero_writes;
+static int8_t s_space_delay[SPACE_DELAY_SAMPLES];
+static uint16_t s_space_delay_index;
 
 static const char *s_track_names[TRACK_COUNT] = { "KICK", "SNARE", "HAT", "RIM" };
 static const GColor s_track_colors[TRACK_COUNT] = {
@@ -95,11 +109,11 @@ static bool play_pattern(void);
 static bool tuple_to_uint32(const Tuple *tuple, uint32_t *value);
 
 static uint8_t active_track_count(void) {
-  return s_page == PageDrums ? TRACK_COUNT : SYNTH_TRACK_COUNT;
+  return s_page == PageDrums ? TRACK_COUNT : (s_page == PageSynths ? SYNTH_TRACK_COUNT : EFFECT_COUNT);
 }
 
 static uint16_t *active_patterns(void) {
-  return s_page == PageDrums ? s_drum_pattern : s_synth_pattern;
+  return s_page == PageSynths ? s_synth_pattern : s_drum_pattern;
 }
 
 static const char *active_track_name(uint8_t track) {
@@ -207,6 +221,26 @@ static void save_synth_notes(uint8_t track) {
                      s_synth_note_index[track], STEP_COUNT);
 }
 
+static void save_effects(void) {
+  persist_write_int(PERSIST_VOLUME, s_volume);
+  persist_write_int(PERSIST_DRIVE, s_drive);
+  persist_write_int(PERSIST_SPACE, s_space);
+}
+
+static uint8_t *active_effect_value(void) {
+  if (s_cursor_track == 0) return &s_volume;
+  if (s_cursor_track == 1) return &s_drive;
+  return &s_space;
+}
+
+static void adjust_active_effect(int8_t amount) {
+  uint8_t *value = active_effect_value();
+  int16_t next = *value + amount;
+  *value = next < 0 ? 0 : (next > 100 ? 100 : next);
+  if (s_cursor_track == 0 && s_stream_open) speaker_set_volume(s_volume);
+  save_effects();
+}
+
 static uint16_t next_step_samples(uint16_t *remainder) {
   const uint16_t denominator = s_bpm * 4;
   const uint32_t numerator = PCM_SAMPLE_RATE * 60;
@@ -233,8 +267,8 @@ static int16_t drum_sample(uint8_t track, uint16_t offset) {
 }
 
 static int8_t finalize_mix(int32_t mixed) {
-  // Keep the current punch at normal levels, but smoothly compress rare six-voice peaks.
-  int32_t sample = mixed / 3;
+  // Drive raises the mixer gain before the soft limiter adds intentional crunch.
+  int32_t sample = mixed * (100 + s_drive * 2) / 300;
   int32_t sign = sample < 0 ? -1 : 1;
   int32_t magnitude = sample < 0 ? -sample : sample;
   if (magnitude > 96) magnitude = 96 + (magnitude - 96) * 31 / (31 + magnitude - 96);
@@ -271,7 +305,12 @@ static void render_mix(int8_t *buffer, uint16_t count) {
         mixed += voice * envelope_level / 127;
       }
     }
-    buffer[i] = finalize_mix(mixed);
+    int8_t dry = finalize_mix(mixed);
+    int8_t delayed = s_space_delay[s_space_delay_index];
+    // A short feedback echo creates space without a CPU-heavy reverb algorithm.
+    s_space_delay[s_space_delay_index] = clamp_sample(dry + delayed * s_space / 160);
+    buffer[i] = clamp_sample(dry + delayed * s_space / 250);
+    s_space_delay_index = (s_space_delay_index + 1) & (SPACE_DELAY_SAMPLES - 1);
     position++;
     if (position >= step_length) {
       position = 0;
@@ -360,7 +399,9 @@ static bool play_pattern(void) {
   s_empty_write_count = 0;
   s_stream_bytes_written = 0;
   s_stream_zero_writes = 0;
-  if (!speaker_stream_open(SpeakerPcmFormat_8kHz_8bit, 76)) {
+  memset(s_space_delay, 0, sizeof(s_space_delay));
+  s_space_delay_index = 0;
+  if (!speaker_stream_open(SpeakerPcmFormat_8kHz_8bit, s_volume)) {
     s_playing = false;
     s_audio_error = true;
     redraw();
@@ -445,6 +486,36 @@ static void draw_synth_icon(GContext *ctx, uint8_t track, int center_y) {
   }
 }
 
+static void draw_effects(GContext *ctx, GRect bounds) {
+  static const char *names[EFFECT_COUNT] = { "VOLUME", "DRIVE", "SPACE" };
+  const uint8_t values[EFFECT_COUNT] = { s_volume, s_drive, s_space };
+  const int top = 42;
+  const int row_h = (bounds.size.h - top - 12) / EFFECT_COUNT;
+  for (uint8_t effect = 0; effect < EFFECT_COUNT; effect++) {
+    const int y = top + effect * row_h;
+    char label[18];
+    snprintf(label, sizeof(label), "%s %u", names[effect], values[effect]);
+    graphics_context_set_text_color(ctx, GColorWhite);
+    graphics_draw_text(ctx, label, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+                       GRect(10, y, 90, 20), GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentLeft, NULL);
+    const int bar_left = 103;
+    const int bar_width = bounds.size.w - bar_left - 11;
+    graphics_context_set_stroke_color(ctx, GColorLightGray);
+    graphics_draw_rect(ctx, GRect(bar_left, y + 4, bar_width, 12));
+    graphics_context_set_fill_color(ctx, effect == 0 ? GColorVividCerulean :
+                                    (effect == 1 ? GColorOrange : GColorPurple));
+    graphics_fill_rect(ctx, GRect(bar_left + 1, y + 5,
+                                  (bar_width - 2) * values[effect] / 100, 10),
+                       1, GCornersAll);
+    if (effect == s_cursor_track) {
+      graphics_context_set_stroke_color(ctx, GColorWhite);
+      graphics_context_set_stroke_width(ctx, 2);
+      graphics_draw_rect(ctx, GRect(5, y - 2, bounds.size.w - 10, 25));
+    }
+  }
+}
+
 static void draw_sequencer(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
   const int top = 36;
@@ -465,6 +536,8 @@ static void draw_sequencer(Layer *layer, GContext *ctx) {
   } else if (s_page == PageSynths) {
     snprintf(header, sizeof(header), "%s %s", active_track_name(s_cursor_track),
              s_synth_note_names[s_cursor_track][s_synth_note_index[s_cursor_track][s_cursor_step]]);
+  } else if (s_page == PageEffects) {
+    snprintf(header, sizeof(header), "EFFECTS");
   } else {
     snprintf(header, sizeof(header), "DRUM %s %dbpm", active_track_name(s_cursor_track), s_bpm);
   }
@@ -475,9 +548,15 @@ static void draw_sequencer(Layer *layer, GContext *ctx) {
     graphics_context_set_fill_color(ctx, PBL_IF_BW_ELSE(GColorWhite, GColorGreen));
     graphics_fill_circle(ctx, GPoint(bounds.size.w - 7, 9), 3);
   }
-  draw_centered(ctx, s_page == PageSynths ? "HLD ROW  DBL PITCH" : "HLD ROW  DBL BPM",
+  draw_centered(ctx, s_page == PageEffects ? "UP/DN VALUE  HLD ROW" :
+                         (s_page == PageSynths ? "HLD ROW  DBL PITCH" : "HLD ROW  DBL BPM"),
                 GRect(0, 19, bounds.size.w, 15),
                 fonts_get_system_font(FONT_KEY_GOTHIC_14), GColorLightGray);
+
+  if (s_page == PageEffects) {
+    draw_effects(ctx, bounds);
+    return;
+  }
 
   for (uint8_t track = 0; track < track_count; track++) {
     if (track == s_cursor_track) {
@@ -520,11 +599,12 @@ static void draw_sequencer(Layer *layer, GContext *ctx) {
 
 static void select_click(ClickRecognizerRef recognizer, void *context) {
   if (click_number_of_clicks_counted(recognizer) == 2) {
-    s_page = s_page == PageDrums ? PageSynths : PageDrums;
+    s_page = s_page == PageDrums ? PageSynths : (s_page == PageSynths ? PageEffects : PageDrums);
     s_cursor_track = 0;
     redraw();
     return;
   }
+  if (s_page == PageEffects) return;
   uint16_t *patterns = active_patterns();
   patterns[s_cursor_track] ^= (1 << s_cursor_step);
   save_state(s_page == PageDrums ? 1 << s_cursor_track : 0,
@@ -538,6 +618,11 @@ static void select_long_click(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void up_click(ClickRecognizerRef recognizer, void *context) {
+  if (s_page == PageEffects) {
+    adjust_active_effect(click_number_of_clicks_counted(recognizer) == 2 ? 10 : 5);
+    redraw();
+    return;
+  }
   if (click_number_of_clicks_counted(recognizer) == 2) {
     if (s_page == PageSynths) {
       uint8_t *note = &s_synth_note_index[s_cursor_track][s_cursor_step];
@@ -556,6 +641,11 @@ static void up_click(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void down_click(ClickRecognizerRef recognizer, void *context) {
+  if (s_page == PageEffects) {
+    adjust_active_effect(click_number_of_clicks_counted(recognizer) == 2 ? -10 : -5);
+    redraw();
+    return;
+  }
   if (click_number_of_clicks_counted(recognizer) == 2) {
     if (s_page == PageSynths) {
       uint8_t *note = &s_synth_note_index[s_cursor_track][s_cursor_step];
@@ -638,6 +728,9 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     dict_find(iter, MESSAGE_KEY_SynthNotes0), dict_find(iter, MESSAGE_KEY_SynthNotes1),
   };
   Tuple *transport = dict_find(iter, MESSAGE_KEY_Transport);
+  Tuple *volume = dict_find(iter, MESSAGE_KEY_Volume);
+  Tuple *drive = dict_find(iter, MESSAGE_KEY_Drive);
+  Tuple *space = dict_find(iter, MESSAGE_KEY_Space);
   uint8_t changed_tracks = 0;
   uint8_t changed_synth_tracks = 0;
   bool bpm_changed = false;
@@ -689,6 +782,25 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   }
   uint32_t requested_transport;
   if (tuple_to_uint32(transport, &requested_transport)) set_playing(requested_transport != 0);
+  uint32_t requested_effect;
+  bool effects_changed = false;
+  if (tuple_to_uint32(volume, &requested_effect) && requested_effect <= 100 && s_volume != requested_effect) {
+    s_volume = requested_effect;
+    if (s_stream_open) speaker_set_volume(s_volume);
+    effects_changed = true;
+  }
+  if (tuple_to_uint32(drive, &requested_effect) && requested_effect <= 100 && s_drive != requested_effect) {
+    s_drive = requested_effect;
+    effects_changed = true;
+  }
+  if (tuple_to_uint32(space, &requested_effect) && requested_effect <= 100 && s_space != requested_effect) {
+    s_space = requested_effect;
+    effects_changed = true;
+  }
+  if (effects_changed) {
+    save_effects();
+    redraw();
+  }
 }
 
 static void load_state(void) {
@@ -719,6 +831,12 @@ static void load_state(void) {
   }
   int stored_bpm = persist_exists(PERSIST_BPM) ? persist_read_int(PERSIST_BPM) : DEFAULT_BPM;
   s_bpm = (stored_bpm >= MIN_BPM && stored_bpm <= MAX_BPM) ? stored_bpm : DEFAULT_BPM;
+  int stored_volume = persist_exists(PERSIST_VOLUME) ? persist_read_int(PERSIST_VOLUME) : DEFAULT_VOLUME;
+  int stored_drive = persist_exists(PERSIST_DRIVE) ? persist_read_int(PERSIST_DRIVE) : 0;
+  int stored_space = persist_exists(PERSIST_SPACE) ? persist_read_int(PERSIST_SPACE) : 0;
+  s_volume = stored_volume >= 0 && stored_volume <= 100 ? stored_volume : DEFAULT_VOLUME;
+  s_drive = stored_drive >= 0 && stored_drive <= 100 ? stored_drive : 0;
+  s_space = stored_space >= 0 && stored_space <= 100 ? stored_space : 0;
 }
 
 static void init(void) {

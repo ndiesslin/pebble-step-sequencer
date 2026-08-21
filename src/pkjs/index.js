@@ -10,7 +10,7 @@ var defaultSettings = {
   Pattern0: 0x1111, Pattern1: 0x2222, Pattern2: 0x4444, Pattern3: 0x8888,
   Synth0: 0x1111, Synth1: 0x8421,
   SynthNotes0: '0000000000000000', SynthNotes1: '0000000000000000',
-  Bpm: 120, Transport: 0
+  Bpm: 120, Volume: 90, Drive: 0, Space: 0, Transport: 0
 };
 
 function validNumber(value, min, max, fallback) {
@@ -38,6 +38,9 @@ function normalise(settings) {
       savedSettings['SynthNotes' + k] === undefined ? defaultSettings['SynthNotes' + k] : savedSettings['SynthNotes' + k]);
   }
   next.Bpm = validNumber(settings.Bpm, 60, 240, savedSettings.Bpm === undefined ? defaultSettings.Bpm : savedSettings.Bpm);
+  next.Volume = validNumber(settings.Volume, 0, 100, savedSettings.Volume === undefined ? defaultSettings.Volume : savedSettings.Volume);
+  next.Drive = validNumber(settings.Drive, 0, 100, savedSettings.Drive === undefined ? defaultSettings.Drive : savedSettings.Drive);
+  next.Space = validNumber(settings.Space, 0, 100, savedSettings.Space === undefined ? defaultSettings.Space : savedSettings.Space);
   next.Transport = validNumber(settings.Transport, 0, 1, savedSettings.Transport === undefined ? defaultSettings.Transport : savedSettings.Transport);
   return next;
 }
@@ -58,6 +61,9 @@ function sendSettings(settings) {
   for (i = 0; i < 4; i++) { message = {}; message[keys['Pattern' + i]] = settings['Pattern' + i]; messages.push(message); }
   for (i = 0; i < 2; i++) { message = {}; message[keys['Synth' + i]] = settings['Synth' + i]; messages.push(message); }
   message = {}; message[keys.Bpm] = settings.Bpm; messages.push(message);
+  message = {}; message[keys.Volume] = settings.Volume; messages.push(message);
+  message = {}; message[keys.Drive] = settings.Drive; messages.push(message);
+  message = {}; message[keys.Space] = settings.Space; messages.push(message);
   for (i = 0; i < 2; i++) { message = {}; message[keys['SynthNotes' + i]] = settings['SynthNotes' + i]; messages.push(message); }
   if (shouldSendTransport) { message = {}; message[keys.Transport] = settings.Transport; messages.push(message); }
   function sendNext(index, attempt) {

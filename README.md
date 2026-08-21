@@ -38,7 +38,9 @@ It requires Pebble SDK 4.9 or newer because that is when the Speaker API arrived
 | Hold Up / Hold Down | Previous / next row |
 | Double Up / Double Down | Raise / lower tempo by 5 BPM (or change synth pitch on the Synth page) |
 | Select | Toggle the selected step |
-| Double Select | Switch between Drum and Synth pages |
+| Double Select | Switch between Drum, Synth, and Effects pages |
+| Effects page: Up / Down | Raise / lower the selected effect by 5 (double for 10) |
+| Effects page: Hold Up / Hold Down | Select Volume, Drive, or Space |
 | Hold Select | Start / stop playback |
 | Back | Exit the app |
 
@@ -49,6 +51,8 @@ Every 16-step row is one 4/4 bar. A divider after steps 4, 8, and 12 marks the f
 ## Edit from the Pebble mobile app
 
 The companion app opens an editor from the app's **Settings** screen in the Pebble mobile app using its saved phone copy, so it remains responsive even when the configuration bridge cannot complete a watch-to-phone state request. The editor can change every value and writes them back one field at a time; each delivered field is paced and retried up to twice. Keep Pebble Studio open while saving.
+
+The Effects page and matching phone sliders provide **Volume** (default 90/100), **Drive** (soft-clipped gain), and **Space** (a short feedback echo). Effects persist on the watch. Space is intentionally a compact echo rather than a CPU-heavy reverb, preserving stable playback on Pebble hardware.
 
 The configuration webview is deployed automatically by the GitHub Pages workflow from `config/` whenever that directory changes. The release build points to `https://ndiesslin.github.io/pebble-step-sequencer/`. If the repository is transferred or renamed, update `CONFIG_URL` in `src/pkjs/index.js`, rebuild the `.pbw`, and verify the Settings round trip in the Pebble mobile app. No server or account credentials are needed by the editor.
 
