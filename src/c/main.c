@@ -37,7 +37,7 @@ extern uint32_t MESSAGE_KEY_Space;
 #define MIX_BUFFER_SAMPLES 160
 #define MIX_PRIME_BUFFERS 2
 #define MIX_PUMP_INTERVAL_MS 5
-#define SYNTH_NOTE_COUNT 7
+#define SYNTH_NOTE_COUNT 12
 #define EFFECT_COUNT 3
 #define SPACE_DELAY_SAMPLES 256
 #define DEFAULT_VOLUME 90
@@ -82,13 +82,13 @@ static const char *s_synth_names[SYNTH_TRACK_COUNT] = { "BASS", "LEAD" };
 static const GColor s_synth_colors[SYNTH_TRACK_COUNT] = { GColorPurple, GColorVividCerulean };
 #endif
 static const char *s_synth_note_names[SYNTH_TRACK_COUNT][SYNTH_NOTE_COUNT] = {
-  { "C4", "D4", "E4", "G4", "A4", "B4", "C5" },
-  { "C5", "D5", "E5", "G5", "A5", "B5", "C6" },
+  { "C4", "C#4", "D4", "D#4", "E4", "F4", "F#4", "G4", "G#4", "A4", "A#4", "B4" },
+  { "C5", "C#5", "D5", "D#5", "E5", "F5", "F#5", "G5", "G#5", "A5", "A#5", "B5" },
 };
 // 16-bit phase increments at 8 kHz, kept above the Pebble speaker's weak low end.
 static const uint16_t s_synth_phase_increments[SYNTH_TRACK_COUNT][SYNTH_NOTE_COUNT] = {
-  { 2144, 2404, 2700, 3212, 3604, 4048, 4288 },
-  { 4288, 4808, 5400, 6424, 7208, 8096, 8576 },
+  { 2144, 2272, 2408, 2551, 2704, 2865, 3035, 3216, 3408, 3609, 3824, 4051 },
+  { 4288, 4544, 4816, 5102, 5408, 5730, 6070, 6432, 6816, 7218, 7648, 8102 },
 };
 
 static int8_t s_kick_pcm[KICK_SAMPLE_COUNT];
@@ -711,8 +711,11 @@ static bool tuple_to_synth_notes(const Tuple *tuple, uint8_t values[STEP_COUNT])
   if (!tuple || tuple->type != TUPLE_CSTRING || tuple->length < STEP_COUNT) return false;
   const char *text = tuple->value->cstring;
   for (uint8_t step = 0; step < STEP_COUNT; step++) {
-    if (text[step] < '0' || text[step] >= '0' + SYNTH_NOTE_COUNT) return false;
-    values[step] = text[step] - '0';
+    char value = text[step];
+    if (value >= '0' && value <= '9') values[step] = value - '0';
+    else if (value == 'A') values[step] = 10;
+    else if (value == 'B') values[step] = 11;
+    else return false;
   }
   return true;
 }

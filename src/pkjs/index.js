@@ -20,7 +20,7 @@ function validNumber(value, min, max, fallback) {
 
 function validNotes(value, fallback) {
   value = String(value === undefined ? fallback : value);
-  return /^[0-6]{16}$/.test(value) ? value : (fallback || '0000000000000000');
+  return /^[0-9AB]{16}$/.test(value) ? value : (fallback || '0000000000000000');
 }
 
 function normalise(settings) {
