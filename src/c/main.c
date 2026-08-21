@@ -503,8 +503,10 @@ static void draw_effects(GContext *ctx, GRect bounds) {
     const int bar_width = bounds.size.w - bar_left - 11;
     graphics_context_set_stroke_color(ctx, GColorLightGray);
     graphics_draw_rect(ctx, GRect(bar_left, y + 4, bar_width, 12));
-    graphics_context_set_fill_color(ctx, effect == 0 ? GColorVividCerulean :
-                                    (effect == 1 ? GColorOrange : GColorPurple));
+    // Purple maps to black on Pebble 2; keep every FX amount visible on monochrome screens.
+    GColor effect_color = PBL_IF_BW_ELSE(GColorWhite,
+      (effect == 0 ? GColorVividCerulean : (effect == 1 ? GColorOrange : GColorPurple)));
+    graphics_context_set_fill_color(ctx, effect_color);
     graphics_fill_rect(ctx, GRect(bar_left + 1, y + 5,
                                   (bar_width - 2) * values[effect] / 100, 10),
                        1, GCornersAll);
