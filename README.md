@@ -54,7 +54,7 @@ The companion app opens an editor from the app's **Settings** screen in the Pebb
 
 The Effects page and matching phone sliders provide **Volume** (default 90/100), **Drive** (soft-clipped gain), and **Space** (a short feedback echo). Effects persist on the watch. Space is intentionally a compact echo rather than a CPU-heavy reverb, preserving stable playback on Pebble hardware.
 
-The configuration webview is deployed automatically by the GitHub Pages workflow from `config/` whenever that directory changes. The release build points to `https://ndiesslin.github.io/pebble-step-sequencer/`. If the repository is transferred or renamed, update `CONFIG_URL` in `src/pkjs/index.js`, rebuild the `.pbw`, and verify the Settings round trip in the Pebble mobile app. No server or account credentials are needed by the editor.
+The configuration webview is deployed automatically by the GitHub Pages workflow from `config/` whenever that directory changes. The release build points to `https://ndiesslin.github.io/pebble-studio/`. If the repository is transferred or renamed, update `CONFIG_URL` in `src/pkjs/index.js`, rebuild the `.pbw`, and verify the Settings round trip in the Pebble mobile app. No server or account credentials are needed by the editor.
 
 ## Build and install
 

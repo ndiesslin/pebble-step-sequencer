@@ -2,7 +2,7 @@
 var keys = require('message_keys');
 
 // GitHub Pages deployment is defined in .github/workflows/pages.yml.
-var CONFIG_URL = 'https://ndiesslin.github.io/pebble-step-sequencer/';
+var CONFIG_URL = 'https://ndiesslin.github.io/pebble-studio/';
 var savedSettings = {};
 var waitingToOpen = false;
 
