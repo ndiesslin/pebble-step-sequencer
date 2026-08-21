@@ -4,13 +4,15 @@
 
 ![Pebble Studio app icon](docs/app-icon.png)
 
-A six-voice, 16-step music-sequencer app for speaker-equipped Pebble watches: a four-voice drum page plus a Bass/Lead synth page.
+A six-voice, 16-step music-sequencer app for speaker-equipped Pebble watches: a four-voice drum page, Bass/Lead synth page, and an Effects page for Volume, Drive, and Space.
+
+[View Pebble Studio on the Pebble Store](https://apps.repebble.com/bec95167d5404fd1934d80fa)
 
 ## Publishing description
 
-Turn your Pebble into a pocket-sized groovebox. Pebble Studio is a playful 16-step sequencer app that lets you build drum, bass, and lead loops directly on your wrist, then hear them through the watch's built-in speaker.
+Turn your Pebble into a pocket-sized groovebox. Pebble Studio is a playful 16-step sequencer app that lets you build drum, bass, and lead loops directly on your wrist, then hear them through the watch's built-in speaker. Shape the loop with Volume, Drive, and Space effects on the watch or from the phone editor.
 
-Create rhythms with four synthesized drum voices and two melodic voices, move through the grid with the hardware buttons, adjust tempo from 60 to 240 BPM, and keep patterns saved between sessions. The Pebble mobile app includes a full editor for composing from your phone. Designed for quick musical sketches, tiny loops, and joyful wrist-bound bleeps.
+Create rhythms with four synthesized drum voices and two melodic voices, move through the grid with the hardware buttons, adjust tempo from 60 to 240 BPM, and keep patterns and effects saved between sessions. The Pebble mobile app includes a full editor and effect sliders for composing from your phone. Designed for quick musical sketches, tiny loops, and joyful wrist-bound bleeps.
 
 **Requires a speaker-equipped Pebble:** Pebble 2 Duo or Pebble Time 2. Pebble SDK 4.9 or later is required.
 
@@ -67,6 +69,14 @@ pebble install --emulator emery
 ```
 
 Use a physical Pebble 2 Duo or Pebble Time 2 for audio. The emulator is useful for checking layout and controls, but cannot reproduce the watch speaker.
+
+## Pebble Store release checklist
+
+- Create the listing as a **watchapp** (not a watchface) in **Tools & Utilities**.
+- Upload a release compatible with `flint` and `emery`, plus screenshots for both devices.
+- Upload the small and large app icons, and a 720×320 banner for each supported platform.
+- Keep both the listing's **Published** visibility setting and the release's publication setting off until launch; they are separate controls.
+- Set the source URL to [github.com/ndiesslin/pebble-studio](https://github.com/ndiesslin/pebble-studio).
 
 ## Design notes
 
