@@ -85,9 +85,9 @@
     function renderTransport() { transport.textContent = playing ? 'Stop playback' : 'Start playback'; }
     renderTransport(); transport.onclick = function () { playing = !playing; transportTouched = true; renderTransport(); };
     var presets = {
-      four: { patterns: [0x1111, 0x0404, 0x5555, 0x0000, 0x1111, 0x0000], notes: ['0000222200002222', '0000000000000000'], bpm: 120 },
-      electro: { patterns: [0x1001, 0x0404, 0xaaaa, 0x0200, 0x1111, 0x8421], notes: ['0000222203334444', '0246024602460246'], bpm: 130 },
-      melody: { patterns: [0x1111, 0x0404, 0x5555, 0x0000, 0x1111, 0x8421], notes: ['0000333302225555', '0134013401234013'], bpm: 110 }
+      four: { patterns: [0x1111, 0x0404, 0x5555, 0x0000, 0x1111, 0x0000], notes: ['0000222200002222', '0000000000000000'], bpm: 120, effects: [90, 0, 10] },
+      electro: { patterns: [0x1001, 0x0404, 0xaaaa, 0x0200, 0x1111, 0x8421], notes: ['0000222203334444', '0246024602460246'], bpm: 130, effects: [95, 45, 25] },
+      melody: { patterns: [0x1111, 0x0404, 0x5555, 0x0000, 0x1111, 0x8421], notes: ['0000333302225555', '0134013401234013'], bpm: 110, effects: [88, 10, 45] }
     };
     function setButtonActive(target, active) { if (active && !hasClass(target, 'active')) toggleClass(target, 'active'); if (!active && hasClass(target, 'active')) toggleClass(target, 'active'); }
     function applyPreset(preset) {
@@ -100,6 +100,11 @@
         for (presetStep = 0; presetStep < 16; presetStep++) pitchButtons[presetTrack][presetStep].textContent = noteNames[presetTrack][Number(presetNotes[presetStep])];
       }
       if (preset.bpm) { bpm.value = preset.bpm; tempo.textContent = bpm.value; }
+      if (preset.effects) {
+        setEffectControl(volume, volumeValue, preset.effects[0], 90);
+        setEffectControl(drive, driveValue, preset.effects[1], 0);
+        setEffectControl(space, spaceValue, preset.effects[2], 0);
+      }
     }
     document.getElementById('presets').onclick = function (event) {
       var choice = event.target.getAttribute('data-preset');
