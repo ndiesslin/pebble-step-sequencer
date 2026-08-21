@@ -49,8 +49,6 @@ static uint16_t s_bpm;
 static bool s_playing;
 static bool s_audio_error;
 static AppTimer *s_audio_timer;
-static AppTimer *s_indicator_timer;
-static uint8_t s_indicator_phase;
 static uint8_t s_mix_step;
 static uint16_t s_mix_step_sample;
 static uint16_t s_mix_step_length;
@@ -181,21 +179,6 @@ static void cancel_audio_timer(void) {
     app_timer_cancel(s_audio_timer);
     s_audio_timer = NULL;
   }
-}
-
-static void cancel_indicator_timer(void) {
-  if (s_indicator_timer) {
-    app_timer_cancel(s_indicator_timer);
-    s_indicator_timer = NULL;
-  }
-}
-
-static void animate_playback_indicator(void *context) {
-  s_indicator_timer = NULL;
-  if (!s_playing) return;
-  s_indicator_phase = (s_indicator_phase + 1) % 4;
-  redraw();
-  s_indicator_timer = app_timer_register(250, animate_playback_indicator, NULL);
 }
 
 static void save_state(uint8_t changed_drum_tracks, uint8_t changed_synth_tracks,
@@ -329,7 +312,6 @@ static void stop_for_audio_error(void) {
   s_audio_error = true;
   s_pending_length = 0;
   cancel_audio_timer();
-  cancel_indicator_timer();
   speaker_stop();
   redraw();
 }
@@ -398,14 +380,8 @@ static void set_playing(bool playing) {
   if (s_playing) {
     s_audio_error = false;
     play_pattern();
-    if (s_playing) {
-      s_indicator_phase = 0;
-      cancel_indicator_timer();
-      s_indicator_timer = app_timer_register(250, animate_playback_indicator, NULL);
-    }
   } else {
     cancel_audio_timer();
-    cancel_indicator_timer();
     s_pending_length = 0;
     speaker_stop();
   }
@@ -490,13 +466,6 @@ static void draw_sequencer(Layer *layer, GContext *ctx) {
   draw_centered(ctx, s_page == PageSynths ? "HLD ROW  DBL PITCH" : "HLD ROW  DBL BPM",
                 GRect(0, 19, bounds.size.w, 15),
                 fonts_get_system_font(FONT_KEY_GOTHIC_14), GColorLightGray);
-  if (s_playing) {
-    const int segment_w = bounds.size.w / 4;
-    const int segment_x = s_indicator_phase * segment_w;
-    graphics_context_set_stroke_color(ctx, PBL_IF_BW_ELSE(GColorWhite, GColorGreen));
-    graphics_context_set_stroke_width(ctx, 2);
-    graphics_draw_line(ctx, GPoint(segment_x + 2, 34), GPoint(segment_x + segment_w - 3, 34));
-  }
 
   for (uint8_t track = 0; track < track_count; track++) {
     if (track == s_cursor_track) {
@@ -778,7 +747,6 @@ static void init(void) {
 static void deinit(void) {
   speaker_stop();
   cancel_audio_timer();
-  cancel_indicator_timer();
   speaker_set_finish_callback(NULL, NULL);
   app_message_deregister_callbacks();
   window_destroy(s_window);

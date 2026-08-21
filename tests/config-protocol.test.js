@@ -13,7 +13,6 @@ assert(/Save &amp; Close/.test(config), 'editor should offer one explicit close-
 assert(/PCM underrun/.test(nativeCode) && /voice \* 5 \/ 2/.test(nativeCode), 'audio should log real underruns and use per-voice drum gains');
 assert(/MIX_BUFFER_SAMPLES 160/.test(nativeCode) && /MIX_PUMP_INTERVAL_MS 5/.test(nativeCode), 'audio should retain its proven full-quality stream block size');
 assert(/timing-sensitive grid animation/.test(nativeCode) && !/s_playhead/.test(nativeCode), 'playback should use a simple static status indicator');
-assert(/animate_playback_indicator/.test(nativeCode) && /app_timer_register\(250/.test(nativeCode), 'playback should include a lightweight visual-only line animation');
 assert(/dict_write_uint16\(iter, MESSAGE_KEY_Pattern0/.test(nativeCode), 'watch reply must include drum patterns');
 assert(!/settingsRequestPart/.test(pkjs), 'opening Settings should not wait for a second state round-trip');
 assert(/cachedState/.test(config) && /disabled = true/.test(config), 'cached editor must be view-only');
