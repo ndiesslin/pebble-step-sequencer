@@ -14,7 +14,7 @@ assert(/PCM underrun/.test(nativeCode) && /voice \* 5 \/ 2/.test(nativeCode), 'a
 assert(/MIX_BUFFER_SAMPLES 160/.test(nativeCode) && /MIX_PUMP_INTERVAL_MS 5/.test(nativeCode), 'audio should retain its proven full-quality stream block size');
 assert(/timing-sensitive grid animation/.test(nativeCode) && !/s_playhead/.test(nativeCode), 'playback should use a simple static status indicator');
 assert(/close_speaker_stream/.test(nativeCode) && /speaker_stream_close\(\)/.test(nativeCode), 'PCM streams should close on stop and teardown');
-assert(/heap_bytes_free\(\)/.test(nativeCode) && /QUEUED NEXT BAR/.test(nativeCode), 'live-safe updates should use an adaptive standby cache');
+assert(/heap_bytes_free\(\)/.test(nativeCode) && /QUEUING NEXT BAR/.test(nativeCode) && /QUEUED NEXT BAR/.test(nativeCode), 'live-safe updates should use an adaptive standby cache');
 assert(/PLAYING_REDRAW_INTERVAL_MS 40/.test(nativeCode) && /Coalesce/.test(nativeCode), 'cursor paints should be coalesced during playback');
 assert(/persist_write_data\(PERSIST_SYNTH_NOTES_BLOB_BASE/.test(nativeCode), 'synth note edits should persist as one compact track blob');
 assert(/MESSAGE_KEY_Volume/.test(nativeCode) && /MESSAGE_KEY_Drive/.test(nativeCode) && /MESSAGE_KEY_Space/.test(nativeCode), 'watch should accept all three effect controls');

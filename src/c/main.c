@@ -948,6 +948,7 @@ static void draw_sequencer(Layer *layer, GContext *ctx) {
   draw_centered(ctx, s_show_help ? "HLD SEL:PLAY  2X SEL:PAGE" :
                          s_staged_cache_ready ? "QUEUED NEXT BAR" :
                          s_staged_loop_pcm ? "PREPARING NEXT BAR" :
+                         s_staged_debounce_timer ? "QUEUING NEXT BAR" :
                          s_loop_cache_dirty ? "CHANGES NEXT START" :
                          s_page == PageRouting ? "UP/DN TARGET HLD ROW" :
                          (s_page == PageEffects || s_page == PageShape) ? "UP/DN VALUE  HLD ROW" :
