@@ -476,6 +476,7 @@ static void invalidate_loop_cache(void) {
 }
 
 static void advance_mix_position(uint16_t count) {
+  bool step_changed = false;
   while (count > 0) {
     uint16_t remaining = s_mix_step_length - s_mix_step_sample;
     uint16_t advance = count < remaining ? count : remaining;
@@ -485,8 +486,10 @@ static void advance_mix_position(uint16_t count) {
       s_mix_step_sample = 0;
       s_mix_step = (s_mix_step + 1) % STEP_COUNT;
       s_mix_step_length = next_step_samples(&s_mix_step_remainder);
+      step_changed = true;
     }
   }
+  if (step_changed) redraw();
 }
 
 static void prepare_pending_audio(void) {
@@ -786,7 +789,8 @@ static void draw_sequencer(Layer *layer, GContext *ctx) {
     graphics_context_set_fill_color(ctx, PBL_IF_BW_ELSE(GColorWhite, GColorGreen));
     graphics_fill_circle(ctx, GPoint(bounds.size.w - 7, 9), 3);
   }
-  draw_centered(ctx, s_page == PageRouting ? "UP/DN TARGET HLD ROW" :
+  draw_centered(ctx, s_loop_cache_dirty ? "CHANGES NEXT START" :
+                         s_page == PageRouting ? "UP/DN TARGET HLD ROW" :
                          (s_page == PageEffects || s_page == PageShape) ? "UP/DN VALUE  HLD ROW" :
                          (s_page == PageSynths ? "HLD ROW  DBL PITCH" : "HLD ROW  DBL BPM"),
                 GRect(0, 19, bounds.size.w, 15),
@@ -839,6 +843,11 @@ static void draw_sequencer(Layer *layer, GContext *ctx) {
         graphics_context_set_stroke_color(ctx, GColorWhite);
         graphics_context_set_stroke_width(ctx, 2);
         graphics_draw_rect(ctx, GRect(x - 1, y - 1, cell_w + 2, row_h - 3));
+      }
+      if (s_playing && step == s_mix_step) {
+        graphics_context_set_stroke_color(ctx, PBL_IF_BW_ELSE(GColorWhite, GColorGreen));
+        graphics_context_set_stroke_width(ctx, 1);
+        graphics_draw_rect(ctx, GRect(x, y, cell_w, row_h - 5));
       }
     }
   }
