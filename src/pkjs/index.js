@@ -11,7 +11,7 @@ var defaultSettings = {
   Synth0: 0x1111, Synth1: 0x8421,
   SynthNotes0: '0000000000000000', SynthNotes1: '0000000000000000',
   Bpm: 120, Volume: 90, Drive: 0, Space: 0,
-  BassCutoff: 85, BassBite: 10, LeadCutoff: 95, LeadBite: 25,
+  BassAttack: 10, BassDecay: 50, LeadAttack: 5, LeadDecay: 65,
   DriveTargets: 7, SpaceTargets: 7, Transport: 0
 };
 
@@ -43,10 +43,10 @@ function normalise(settings) {
   next.Volume = validNumber(settings.Volume, 0, 100, savedSettings.Volume === undefined ? defaultSettings.Volume : savedSettings.Volume);
   next.Drive = validNumber(settings.Drive, 0, 100, savedSettings.Drive === undefined ? defaultSettings.Drive : savedSettings.Drive);
   next.Space = validNumber(settings.Space, 0, 100, savedSettings.Space === undefined ? defaultSettings.Space : savedSettings.Space);
-  next.BassCutoff = validNumber(settings.BassCutoff, 0, 100, savedSettings.BassCutoff === undefined ? defaultSettings.BassCutoff : savedSettings.BassCutoff);
-  next.BassBite = validNumber(settings.BassBite, 0, 100, savedSettings.BassBite === undefined ? defaultSettings.BassBite : savedSettings.BassBite);
-  next.LeadCutoff = validNumber(settings.LeadCutoff, 0, 100, savedSettings.LeadCutoff === undefined ? defaultSettings.LeadCutoff : savedSettings.LeadCutoff);
-  next.LeadBite = validNumber(settings.LeadBite, 0, 100, savedSettings.LeadBite === undefined ? defaultSettings.LeadBite : savedSettings.LeadBite);
+  next.BassAttack = validNumber(settings.BassAttack, 0, 100, savedSettings.BassAttack === undefined ? defaultSettings.BassAttack : savedSettings.BassAttack);
+  next.BassDecay = validNumber(settings.BassDecay, 0, 100, savedSettings.BassDecay === undefined ? defaultSettings.BassDecay : savedSettings.BassDecay);
+  next.LeadAttack = validNumber(settings.LeadAttack, 0, 100, savedSettings.LeadAttack === undefined ? defaultSettings.LeadAttack : savedSettings.LeadAttack);
+  next.LeadDecay = validNumber(settings.LeadDecay, 0, 100, savedSettings.LeadDecay === undefined ? defaultSettings.LeadDecay : savedSettings.LeadDecay);
   next.DriveTargets = validNumber(settings.DriveTargets, 0, 7, savedSettings.DriveTargets === undefined ? defaultSettings.DriveTargets : savedSettings.DriveTargets);
   next.SpaceTargets = validNumber(settings.SpaceTargets, 0, 7, savedSettings.SpaceTargets === undefined ? defaultSettings.SpaceTargets : savedSettings.SpaceTargets);
   next.Transport = validNumber(settings.Transport, 0, 1, savedSettings.Transport === undefined ? defaultSettings.Transport : savedSettings.Transport);
@@ -72,10 +72,10 @@ function sendSettings(settings) {
   message = {}; message[keys.Volume] = settings.Volume; messages.push(message);
   message = {}; message[keys.Drive] = settings.Drive; messages.push(message);
   message = {}; message[keys.Space] = settings.Space; messages.push(message);
-  message = {}; message[keys.BassCutoff] = settings.BassCutoff; messages.push(message);
-  message = {}; message[keys.BassBite] = settings.BassBite; messages.push(message);
-  message = {}; message[keys.LeadCutoff] = settings.LeadCutoff; messages.push(message);
-  message = {}; message[keys.LeadBite] = settings.LeadBite; messages.push(message);
+  message = {}; message[keys.BassAttack] = settings.BassAttack; messages.push(message);
+  message = {}; message[keys.BassDecay] = settings.BassDecay; messages.push(message);
+  message = {}; message[keys.LeadAttack] = settings.LeadAttack; messages.push(message);
+  message = {}; message[keys.LeadDecay] = settings.LeadDecay; messages.push(message);
   message = {}; message[keys.DriveTargets] = settings.DriveTargets; messages.push(message);
   message = {}; message[keys.SpaceTargets] = settings.SpaceTargets; messages.push(message);
   for (i = 0; i < 2; i++) { message = {}; message[keys['SynthNotes' + i]] = settings['SynthNotes' + i]; messages.push(message); }

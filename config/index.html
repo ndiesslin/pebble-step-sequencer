@@ -39,10 +39,10 @@
   <div class="tempo"><label for="drive">Drive <output id="drive-value">0</output></label><input id="drive" type="range" min="0" max="100" step="5" value="0"></div>
   <div class="tempo"><label for="space">Space <output id="space-value">0</output></label><input id="space" type="range" min="0" max="100" step="5" value="0"></div>
   <h2>Synth Shape</h2>
-  <div class="tempo"><label for="bass-cutoff">Bass Cutoff <output id="bass-cutoff-value">85</output></label><input id="bass-cutoff" type="range" min="0" max="100" step="5" value="85"></div>
-  <div class="tempo"><label for="bass-bite">Bass Resonance <output id="bass-bite-value">10</output></label><input id="bass-bite" type="range" min="0" max="100" step="5" value="10"></div>
-  <div class="tempo"><label for="lead-cutoff">Lead Cutoff <output id="lead-cutoff-value">95</output></label><input id="lead-cutoff" type="range" min="0" max="100" step="5" value="95"></div>
-  <div class="tempo"><label for="lead-bite">Lead Resonance <output id="lead-bite-value">25</output></label><input id="lead-bite" type="range" min="0" max="100" step="5" value="25"></div>
+  <div class="tempo"><label for="bass-cutoff">Bass Attack <output id="bass-cutoff-value">10</output></label><input id="bass-cutoff" type="range" min="0" max="100" step="5" value="10"></div>
+  <div class="tempo"><label for="bass-bite">Bass Decay <output id="bass-bite-value">50</output></label><input id="bass-bite" type="range" min="0" max="100" step="5" value="50"></div>
+  <div class="tempo"><label for="lead-cutoff">Lead Attack <output id="lead-cutoff-value">5</output></label><input id="lead-cutoff" type="range" min="0" max="100" step="5" value="5"></div>
+  <div class="tempo"><label for="lead-bite">Lead Decay <output id="lead-bite-value">65</output></label><input id="lead-bite" type="range" min="0" max="100" step="5" value="65"></div>
   <h2>Effect Routing</h2><p>Volume remains master; choose which groups receive Drive and Space.</p>
   <label>Drive</label><div class="routing" id="drive-targets"></div>
   <label>Space</label><div class="routing" id="space-targets"></div>
@@ -91,10 +91,10 @@
     setEffectControl(drive, driveValue, state.Drive, 0);
     setEffectControl(space, spaceValue, state.Space, 0);
     var bassCutoff = document.getElementById('bass-cutoff'), bassCutoffValue = document.getElementById('bass-cutoff-value'), bassBite = document.getElementById('bass-bite'), bassBiteValue = document.getElementById('bass-bite-value'), leadCutoff = document.getElementById('lead-cutoff'), leadCutoffValue = document.getElementById('lead-cutoff-value'), leadBite = document.getElementById('lead-bite'), leadBiteValue = document.getElementById('lead-bite-value');
-    setEffectControl(bassCutoff, bassCutoffValue, state.BassCutoff, 85);
-    setEffectControl(bassBite, bassBiteValue, state.BassBite, 10);
-    setEffectControl(leadCutoff, leadCutoffValue, state.LeadCutoff, 95);
-    setEffectControl(leadBite, leadBiteValue, state.LeadBite, 25);
+    setEffectControl(bassCutoff, bassCutoffValue, state.BassAttack, 10);
+    setEffectControl(bassBite, bassBiteValue, state.BassDecay, 50);
+    setEffectControl(leadCutoff, leadCutoffValue, state.LeadAttack, 5);
+    setEffectControl(leadBite, leadBiteValue, state.LeadDecay, 65);
     var targetNames = ['Drums', 'Bass', 'Lead'];
     function buildTargetControls(containerId, mask) {
       var container = document.getElementById(containerId), result = [], target, label, input;
@@ -144,7 +144,7 @@
     };
     document.getElementById('clear').onclick = function () { applyPreset({ patterns: [0, 0, 0, 0, 0, 0], notes: ['0000000000000000', '0000000000000000'] }); };
     function currentSettings() {
-      var result = { Bpm: Number(bpm.value), Volume: Number(volume.value), Drive: Number(drive.value), Space: Number(space.value), BassCutoff: Number(bassCutoff.value), BassBite: Number(bassBite.value), LeadCutoff: Number(leadCutoff.value), LeadBite: Number(leadBite.value), DriveTargets: targetMask(driveTargets), SpaceTargets: targetMask(spaceTargets) }, rows = tracks.getElementsByClassName('track'), buttons, value, i, j, sequenceRow = 0;
+      var result = { Bpm: Number(bpm.value), Volume: Number(volume.value), Drive: Number(drive.value), Space: Number(space.value), BassAttack: Number(bassCutoff.value), BassDecay: Number(bassBite.value), LeadAttack: Number(leadCutoff.value), LeadDecay: Number(leadBite.value), DriveTargets: targetMask(driveTargets), SpaceTargets: targetMask(spaceTargets) }, rows = tracks.getElementsByClassName('track'), buttons, value, i, j, sequenceRow = 0;
       for (i = 0; i < rows.length; i++) { if (hasClass(rows[i], 'pitch')) continue; buttons = rows[i].getElementsByTagName('button'); value = 0; for (j = 0; j < buttons.length; j++) if (hasClass(buttons[j], 'active')) value |= (1 << Number(buttons[j].getAttribute('data-step'))); result[sequenceRow < 4 ? 'Pattern' + sequenceRow : 'Synth' + (sequenceRow - 4)] = value; sequenceRow++; }
       result.SynthNotes0 = synthNotes[0].join(''); result.SynthNotes1 = synthNotes[1].join('');
       if (transportTouched) result.Transport = playing ? 1 : 0;

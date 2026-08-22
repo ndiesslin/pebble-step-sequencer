@@ -14,10 +14,10 @@ extern uint32_t MESSAGE_KEY_Transport;
 extern uint32_t MESSAGE_KEY_Volume;
 extern uint32_t MESSAGE_KEY_Drive;
 extern uint32_t MESSAGE_KEY_Space;
-extern uint32_t MESSAGE_KEY_BassCutoff;
-extern uint32_t MESSAGE_KEY_BassBite;
-extern uint32_t MESSAGE_KEY_LeadCutoff;
-extern uint32_t MESSAGE_KEY_LeadBite;
+extern uint32_t MESSAGE_KEY_BassAttack;
+extern uint32_t MESSAGE_KEY_BassDecay;
+extern uint32_t MESSAGE_KEY_LeadAttack;
+extern uint32_t MESSAGE_KEY_LeadDecay;
 extern uint32_t MESSAGE_KEY_DriveTargets;
 extern uint32_t MESSAGE_KEY_SpaceTargets;
 
@@ -40,10 +40,10 @@ extern uint32_t MESSAGE_KEY_SpaceTargets;
 #define PERSIST_VOLUME 111
 #define PERSIST_DRIVE 112
 #define PERSIST_SPACE 113
-#define PERSIST_BASS_CUTOFF 114
-#define PERSIST_BASS_BITE 115
-#define PERSIST_LEAD_CUTOFF 116
-#define PERSIST_LEAD_BITE 117
+#define PERSIST_BASS_ATTACK 114
+#define PERSIST_BASS_DECAY 115
+#define PERSIST_LEAD_ATTACK 116
+#define PERSIST_LEAD_DECAY 117
 #define PERSIST_DRIVE_TARGETS 118
 #define PERSIST_SPACE_TARGETS 119
 #define MIX_BUFFER_SAMPLES 160
@@ -75,8 +75,10 @@ static uint16_t s_bpm;
 static uint8_t s_volume;
 static uint8_t s_drive;
 static uint8_t s_space;
-static uint8_t s_synth_cutoff[SYNTH_TRACK_COUNT];
-static uint8_t s_synth_bite[SYNTH_TRACK_COUNT];
+static uint8_t s_synth_attack[SYNTH_TRACK_COUNT];
+static uint8_t s_synth_decay[SYNTH_TRACK_COUNT];
+static uint16_t s_synth_attack_gain[SYNTH_TRACK_COUNT];
+static uint16_t s_synth_decay_gain[SYNTH_TRACK_COUNT];
 static uint8_t s_drive_targets;
 static uint8_t s_space_targets;
 static bool s_playing;
@@ -97,7 +99,6 @@ static uint32_t s_stream_bytes_written;
 static uint16_t s_stream_zero_writes;
 static int8_t s_space_delay[SPACE_DELAY_SAMPLES];
 static uint16_t s_space_delay_index;
-static int8_t s_synth_wave_table[SYNTH_TRACK_COUNT][256];
 
 static const char *s_track_names[TRACK_COUNT] = { "KICK", "SNARE", "HAT", "RIM" };
 static const GColor s_track_colors[TRACK_COUNT] = {
@@ -267,27 +268,18 @@ static void save_effects(void) {
 }
 
 static void save_synth_shape(void) {
-  persist_write_int(PERSIST_BASS_CUTOFF, s_synth_cutoff[0]);
-  persist_write_int(PERSIST_BASS_BITE, s_synth_bite[0]);
-  persist_write_int(PERSIST_LEAD_CUTOFF, s_synth_cutoff[1]);
-  persist_write_int(PERSIST_LEAD_BITE, s_synth_bite[1]);
+  persist_write_int(PERSIST_BASS_ATTACK, s_synth_attack[0]);
+  persist_write_int(PERSIST_BASS_DECAY, s_synth_decay[0]);
+  persist_write_int(PERSIST_LEAD_ATTACK, s_synth_attack[1]);
+  persist_write_int(PERSIST_LEAD_DECAY, s_synth_decay[1]);
 }
 
-static void rebuild_synth_wave_tables(void) {
+static void update_synth_envelope_gains(void) {
   for (uint8_t track = 0; track < SYNTH_TRACK_COUNT; track++) {
-    for (uint16_t sample = 0; sample < 256; sample++) {
-      uint8_t phase = sample;
-      int16_t triangle = phase < 128 ? (int16_t)phase * 2 - 128 : 383 - (int16_t)phase * 2;
-      int16_t bright = track == 0
-        ? triangle + (phase & 0x80 ? 28 : -28)
-        : (int16_t)phase - 128;
-      int16_t warm = s_sine[phase >> 2];
-      // Cutoff sweeps unmistakably from a smooth fundamental to the bright source wave.
-      int16_t shaped = (warm * (100 - s_synth_cutoff[track]) + bright * s_synth_cutoff[track]) / 100;
-      // Resonance introduces a centered third-harmonic peak around the selected cutoff character.
-      int16_t resonance = s_sine[((phase * 3) & 0xff) >> 2] * s_synth_bite[track] / 100;
-      s_synth_wave_table[track][phase] = clamp_sample(shaped + resonance);
-    }
+    uint16_t attack_samples = 8 + s_synth_attack[track] * 8;
+    uint16_t decay_samples = 24 + s_synth_decay[track] * 8;
+    s_synth_attack_gain[track] = 127 * 256 / attack_samples;
+    s_synth_decay_gain[track] = 127 * 256 / decay_samples;
   }
 }
 
@@ -311,10 +303,10 @@ static void adjust_active_effect(int8_t amount) {
 }
 
 static uint8_t *active_shape_value(void) {
-  if (s_cursor_track == 0) return &s_synth_cutoff[0];
-  if (s_cursor_track == 1) return &s_synth_bite[0];
-  if (s_cursor_track == 2) return &s_synth_cutoff[1];
-  return &s_synth_bite[1];
+  if (s_cursor_track == 0) return &s_synth_attack[0];
+  if (s_cursor_track == 1) return &s_synth_decay[0];
+  if (s_cursor_track == 2) return &s_synth_attack[1];
+  return &s_synth_decay[1];
 }
 
 static void adjust_active_shape(int8_t amount) {
@@ -322,7 +314,7 @@ static void adjust_active_shape(int8_t amount) {
   int16_t next = *value + amount;
   *value = next < 0 ? 0 : (next > 100 ? 100 : next);
   save_synth_shape();
-  rebuild_synth_wave_tables();
+  update_synth_envelope_gains();
 }
 
 static uint8_t *active_routing_targets(void) {
@@ -385,9 +377,13 @@ static void render_mix(int8_t *buffer, uint16_t count) {
       if (s_synth_pattern[track] & (1 << step)) {
         uint16_t phase = (uint32_t)position * s_synth_phase_increments[track]
           [s_synth_note_index[track][step]];
-        int16_t voice = s_synth_wave_table[track][phase >> 8];
-        uint16_t attack = position < 32 ? position * 4 : 127;
-        uint16_t release = position + 16 >= step_length ? (step_length - position) * 8 : 127;
+        int16_t voice = track == 0
+          ? ((phase >> 8) < 128 ? (int16_t)(phase >> 8) * 2 - 128 : 383 - (int16_t)(phase >> 8) * 2) + (phase & 0x8000 ? 28 : -28)
+          : (int16_t)(phase >> 8) - 128;
+        uint16_t attack = position * s_synth_attack_gain[track] >> 8;
+        if (attack > 127) attack = 127;
+        uint16_t release = (step_length - position) * s_synth_decay_gain[track] >> 8;
+        if (release > 127) release = 127;
         uint16_t envelope_level = attack < release ? attack : release;
         mixed += voice * envelope_level / 127;
       }
@@ -606,9 +602,9 @@ static void draw_effects(GContext *ctx, GRect bounds) {
 }
 
 static void draw_shape(GContext *ctx, GRect bounds) {
-  static const char *names[SHAPE_COUNT] = { "B CUT", "B RES", "L CUT", "L RES" };
+  static const char *names[SHAPE_COUNT] = { "B ATK", "B DEC", "L ATK", "L DEC" };
   const uint8_t values[SHAPE_COUNT] = {
-    s_synth_cutoff[0], s_synth_bite[0], s_synth_cutoff[1], s_synth_bite[1]
+    s_synth_attack[0], s_synth_decay[0], s_synth_attack[1], s_synth_decay[1]
   };
   const int top = 40;
   const int row_h = (bounds.size.h - top - 8) / SHAPE_COUNT;
@@ -928,10 +924,10 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   Tuple *volume = dict_find(iter, MESSAGE_KEY_Volume);
   Tuple *drive = dict_find(iter, MESSAGE_KEY_Drive);
   Tuple *space = dict_find(iter, MESSAGE_KEY_Space);
-  Tuple *bass_cutoff = dict_find(iter, MESSAGE_KEY_BassCutoff);
-  Tuple *bass_bite = dict_find(iter, MESSAGE_KEY_BassBite);
-  Tuple *lead_cutoff = dict_find(iter, MESSAGE_KEY_LeadCutoff);
-  Tuple *lead_bite = dict_find(iter, MESSAGE_KEY_LeadBite);
+  Tuple *bass_cutoff = dict_find(iter, MESSAGE_KEY_BassAttack);
+  Tuple *bass_bite = dict_find(iter, MESSAGE_KEY_BassDecay);
+  Tuple *lead_cutoff = dict_find(iter, MESSAGE_KEY_LeadAttack);
+  Tuple *lead_bite = dict_find(iter, MESSAGE_KEY_LeadDecay);
   Tuple *drive_targets = dict_find(iter, MESSAGE_KEY_DriveTargets);
   Tuple *space_targets = dict_find(iter, MESSAGE_KEY_SpaceTargets);
   uint8_t changed_tracks = 0;
@@ -1007,7 +1003,7 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   bool shape_changed = false;
   Tuple *shape_tuples[SHAPE_COUNT] = { bass_cutoff, bass_bite, lead_cutoff, lead_bite };
   uint8_t *shape_values[SHAPE_COUNT] = {
-    &s_synth_cutoff[0], &s_synth_bite[0], &s_synth_cutoff[1], &s_synth_bite[1]
+    &s_synth_attack[0], &s_synth_decay[0], &s_synth_attack[1], &s_synth_decay[1]
   };
   for (uint8_t shape = 0; shape < SHAPE_COUNT; shape++) {
     if (tuple_to_uint32(shape_tuples[shape], &requested_effect) && requested_effect <= 100 &&
@@ -1018,7 +1014,7 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   }
   if (shape_changed) {
     save_synth_shape();
-    rebuild_synth_wave_tables();
+    update_synth_envelope_gains();
   }
   bool routing_changed = false;
   if (tuple_to_uint32(drive_targets, &requested_effect) && requested_effect <= TARGET_ALL &&
@@ -1069,14 +1065,8 @@ static void load_state(void) {
   s_volume = stored_volume >= 0 && stored_volume <= 100 ? stored_volume : DEFAULT_VOLUME;
   s_drive = stored_drive >= 0 && stored_drive <= 100 ? stored_drive : 0;
   s_space = stored_space >= 0 && stored_space <= 100 ? stored_space : 0;
-  int stored_bass_cutoff = persist_exists(PERSIST_BASS_CUTOFF) ? persist_read_int(PERSIST_BASS_CUTOFF) : 85;
-  int stored_bass_bite = persist_exists(PERSIST_BASS_BITE) ? persist_read_int(PERSIST_BASS_BITE) : 10;
-  int stored_lead_cutoff = persist_exists(PERSIST_LEAD_CUTOFF) ? persist_read_int(PERSIST_LEAD_CUTOFF) : 95;
-  int stored_lead_bite = persist_exists(PERSIST_LEAD_BITE) ? persist_read_int(PERSIST_LEAD_BITE) : 25;
-  s_synth_cutoff[0] = stored_bass_cutoff >= 0 && stored_bass_cutoff <= 100 ? stored_bass_cutoff : 85;
-  s_synth_bite[0] = stored_bass_bite >= 0 && stored_bass_bite <= 100 ? stored_bass_bite : 10;
-  s_synth_cutoff[1] = stored_lead_cutoff >= 0 && stored_lead_cutoff <= 100 ? stored_lead_cutoff : 95;
-  s_synth_bite[1] = stored_lead_bite >= 0 && stored_lead_bite <= 100 ? stored_lead_bite : 25;
+  s_synth_attack[0] = 10; s_synth_decay[0] = 50;
+  s_synth_attack[1] = 5; s_synth_decay[1] = 65;
   int stored_drive_targets = persist_exists(PERSIST_DRIVE_TARGETS) ? persist_read_int(PERSIST_DRIVE_TARGETS) : TARGET_ALL;
   int stored_space_targets = persist_exists(PERSIST_SPACE_TARGETS) ? persist_read_int(PERSIST_SPACE_TARGETS) : TARGET_ALL;
   s_drive_targets = stored_drive_targets >= 0 && stored_drive_targets <= TARGET_ALL ? stored_drive_targets : TARGET_ALL;
@@ -1085,7 +1075,7 @@ static void load_state(void) {
 
 static void init(void) {
   load_state();
-  rebuild_synth_wave_tables();
+  update_synth_envelope_gains();
   init_drum_samples();
   s_window = window_create();
   window_set_window_handlers(s_window, (WindowHandlers) {
