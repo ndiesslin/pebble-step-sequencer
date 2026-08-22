@@ -276,8 +276,8 @@ static void save_synth_shape(void) {
 static void rebuild_synth_wave_tables(void) {
   for (uint8_t track = 0; track < SYNTH_TRACK_COUNT; track++) {
     int16_t low = 0;
-    int16_t previous = 0;
-    uint16_t coefficient = 12 + s_synth_cutoff[track] + (s_synth_cutoff[track] >> 3);
+    // Cover a genuinely wide audible range: warm/rounded at 0 through the original bright wave at 100.
+    uint16_t coefficient = 2 + s_synth_cutoff[track] * 126 / 100;
     // Run several cycles to settle the one-pole filter before keeping one seamless period.
     for (uint16_t sample = 0; sample < 256 * 4; sample++) {
       uint8_t phase = sample & 0xff;
@@ -285,11 +285,11 @@ static void rebuild_synth_wave_tables(void) {
       int16_t raw = track == 0
         ? triangle + (phase & 0x80 ? 28 : -28)
         : (int16_t)phase - 128;
+      // Bite crossfades toward a pulse wave, adding unmistakable high harmonics without any live DSP.
+      int16_t pulse = phase & 0x80 ? 110 : -110;
+      raw = (raw * (100 - s_synth_bite[track]) + pulse * s_synth_bite[track]) / 100;
       low += (raw - low) * coefficient >> 7;
-      int16_t edge = raw - previous;
-      previous = raw;
-      int8_t shaped = clamp_sample(low + (edge * s_synth_bite[track] >> 7));
-      if (sample >= 256 * 3) s_synth_wave_table[track][phase] = shaped;
+      if (sample >= 256 * 3) s_synth_wave_table[track][phase] = clamp_sample(low);
     }
   }
 }
