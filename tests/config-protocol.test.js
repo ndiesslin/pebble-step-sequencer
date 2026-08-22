@@ -6,7 +6,7 @@ var nativeCode = fs.readFileSync('src/c/main.c', 'utf8');
 var config = fs.readFileSync('config/index.html', 'utf8');
 
 assert(/sendNext\(index, attempt\)/.test(pkjs) && /180/.test(pkjs), 'phone should pace every saved field for the physical connection');
-assert(/shouldSendTransport/.test(pkjs) && /transportTouched/.test(config), 'normal saves should preserve watch playback state');
+assert(/shouldSendTransport/.test(pkjs) && /transport\.checked \? 1 : 0/.test(config), 'a checked Start playback box should always send transport');
 assert(/&source=phone&notice=/.test(pkjs), 'Settings should open immediately from the saved phone copy');
 assert(/defaultSettings/.test(pkjs), 'phone editor should start with the app defaults rather than blank patterns');
 assert(/Save &amp; Close/.test(config), 'editor should offer one explicit close-to-save action');
