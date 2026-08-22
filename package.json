@@ -1,7 +1,7 @@
 {
   "name": "pebble-studio",
   "author": "PizzaMan",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A speaker-powered drum and synth step sequencer for Pebble.",
   "keywords": ["pebble-app", "music", "sequencer", "drums", "synth"],
   "private": true,
