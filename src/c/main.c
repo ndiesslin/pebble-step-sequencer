@@ -95,8 +95,7 @@ static uint32_t s_stream_bytes_written;
 static uint16_t s_stream_zero_writes;
 static int8_t s_space_delay[SPACE_DELAY_SAMPLES];
 static uint16_t s_space_delay_index;
-static int16_t s_synth_filter_state[SYNTH_TRACK_COUNT];
-static int16_t s_synth_previous_input[SYNTH_TRACK_COUNT];
+static int8_t s_synth_wave_table[SYNTH_TRACK_COUNT][256];
 
 static const char *s_track_names[TRACK_COUNT] = { "KICK", "SNARE", "HAT", "RIM" };
 static const GColor s_track_colors[TRACK_COUNT] = {
@@ -262,6 +261,27 @@ static void save_synth_shape(void) {
   persist_write_int(PERSIST_LEAD_BITE, s_synth_bite[1]);
 }
 
+static void rebuild_synth_wave_tables(void) {
+  for (uint8_t track = 0; track < SYNTH_TRACK_COUNT; track++) {
+    int16_t low = 0;
+    int16_t previous = 0;
+    uint16_t coefficient = 12 + s_synth_cutoff[track] + (s_synth_cutoff[track] >> 3);
+    // Run several cycles to settle the one-pole filter before keeping one seamless period.
+    for (uint16_t sample = 0; sample < 256 * 4; sample++) {
+      uint8_t phase = sample & 0xff;
+      int16_t triangle = phase < 128 ? (int16_t)phase * 2 - 128 : 383 - (int16_t)phase * 2;
+      int16_t raw = track == 0
+        ? triangle + (phase & 0x80 ? 28 : -28)
+        : (int16_t)phase - 128;
+      low += (raw - low) * coefficient >> 7;
+      int16_t edge = raw - previous;
+      previous = raw;
+      int8_t shaped = clamp_sample(low + (edge * s_synth_bite[track] >> 7));
+      if (sample >= 256 * 3) s_synth_wave_table[track][phase] = shaped;
+    }
+  }
+}
+
 static void save_routing(void) {
   persist_write_int(PERSIST_DRIVE_TARGETS, s_drive_targets);
   persist_write_int(PERSIST_SPACE_TARGETS, s_space_targets);
@@ -293,6 +313,7 @@ static void adjust_active_shape(int8_t amount) {
   int16_t next = *value + amount;
   *value = next < 0 ? 0 : (next > 100 ? 100 : next);
   save_synth_shape();
+  rebuild_synth_wave_tables();
 }
 
 static uint8_t *active_routing_targets(void) {
@@ -315,11 +336,6 @@ static uint16_t next_step_samples(uint16_t *remainder) {
     samples++;
   }
   return samples;
-}
-
-static int16_t triangle_sample(uint16_t phase) {
-  uint8_t high = phase >> 8;
-  return high < 128 ? (int16_t)high * 2 - 128 : 383 - (int16_t)high * 2;
 }
 
 static int16_t drum_sample(uint8_t track, uint16_t offset) {
@@ -360,9 +376,7 @@ static void render_mix(int8_t *buffer, uint16_t count) {
       if (s_synth_pattern[track] & (1 << step)) {
         uint16_t phase = (uint32_t)position * s_synth_phase_increments[track]
           [s_synth_note_index[track][step]];
-        int16_t voice = track == 0
-          ? triangle_sample(phase) + (phase & 0x8000 ? 28 : -28)
-          : (int16_t)(phase >> 8) - 128;
+        int16_t voice = s_synth_wave_table[track][phase >> 8];
         uint16_t attack = position < 32 ? position * 4 : 127;
         uint16_t release = position + 16 >= step_length ? (step_length - position) * 8 : 127;
         uint16_t envelope_level = attack < release ? attack : release;
@@ -464,8 +478,6 @@ static bool play_pattern(void) {
   s_stream_bytes_written = 0;
   s_stream_zero_writes = 0;
   memset(s_space_delay, 0, sizeof(s_space_delay));
-  memset(s_synth_filter_state, 0, sizeof(s_synth_filter_state));
-  memset(s_synth_previous_input, 0, sizeof(s_synth_previous_input));
   s_space_delay_index = 0;
   if (!speaker_stream_open(SpeakerPcmFormat_8kHz_8bit, s_volume)) {
     s_playing = false;
@@ -993,7 +1005,10 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
       shape_changed = true;
     }
   }
-  if (shape_changed) save_synth_shape();
+  if (shape_changed) {
+    save_synth_shape();
+    rebuild_synth_wave_tables();
+  }
   bool routing_changed = false;
   if (tuple_to_uint32(drive_targets, &requested_effect) && requested_effect <= TARGET_ALL &&
       s_drive_targets != requested_effect) {
@@ -1059,6 +1074,7 @@ static void load_state(void) {
 
 static void init(void) {
   load_state();
+  rebuild_synth_wave_tables();
   init_drum_samples();
   s_window = window_create();
   window_set_window_handlers(s_window, (WindowHandlers) {
