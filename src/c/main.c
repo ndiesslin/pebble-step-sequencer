@@ -14,6 +14,12 @@ extern uint32_t MESSAGE_KEY_Transport;
 extern uint32_t MESSAGE_KEY_Volume;
 extern uint32_t MESSAGE_KEY_Drive;
 extern uint32_t MESSAGE_KEY_Space;
+extern uint32_t MESSAGE_KEY_BassCutoff;
+extern uint32_t MESSAGE_KEY_BassBite;
+extern uint32_t MESSAGE_KEY_LeadCutoff;
+extern uint32_t MESSAGE_KEY_LeadBite;
+extern uint32_t MESSAGE_KEY_DriveTargets;
+extern uint32_t MESSAGE_KEY_SpaceTargets;
 
 #define TRACK_COUNT 4
 #define SYNTH_TRACK_COUNT 2
@@ -34,17 +40,30 @@ extern uint32_t MESSAGE_KEY_Space;
 #define PERSIST_VOLUME 111
 #define PERSIST_DRIVE 112
 #define PERSIST_SPACE 113
+#define PERSIST_BASS_CUTOFF 114
+#define PERSIST_BASS_BITE 115
+#define PERSIST_LEAD_CUTOFF 116
+#define PERSIST_LEAD_BITE 117
+#define PERSIST_DRIVE_TARGETS 118
+#define PERSIST_SPACE_TARGETS 119
 #define MIX_BUFFER_SAMPLES 160
 #define MIX_PRIME_BUFFERS 2
 #define MIX_PUMP_INTERVAL_MS 5
 #define SYNTH_NOTE_COUNT 7
 #define EFFECT_COUNT 3
+#define SHAPE_COUNT 4
+#define ROUTING_EFFECT_COUNT 2
+#define ROUTING_TARGET_COUNT 3
+#define TARGET_DRUMS 0x01
+#define TARGET_BASS 0x02
+#define TARGET_LEAD 0x04
+#define TARGET_ALL (TARGET_DRUMS | TARGET_BASS | TARGET_LEAD)
 #define SPACE_DELAY_SAMPLES 256
 #define DEFAULT_VOLUME 90
 
 static Window *s_window;
 static Layer *s_canvas;
-typedef enum { PageDrums, PageSynths, PageEffects } SequencerPage;
+typedef enum { PageDrums, PageSynths, PageShape, PageEffects, PageRouting } SequencerPage;
 
 static uint16_t s_drum_pattern[TRACK_COUNT];
 static uint16_t s_synth_pattern[SYNTH_TRACK_COUNT];
@@ -56,6 +75,10 @@ static uint16_t s_bpm;
 static uint8_t s_volume;
 static uint8_t s_drive;
 static uint8_t s_space;
+static uint8_t s_synth_cutoff[SYNTH_TRACK_COUNT];
+static uint8_t s_synth_bite[SYNTH_TRACK_COUNT];
+static uint8_t s_drive_targets;
+static uint8_t s_space_targets;
 static bool s_playing;
 static bool s_audio_error;
 static AppTimer *s_audio_timer;
@@ -72,6 +95,8 @@ static uint32_t s_stream_bytes_written;
 static uint16_t s_stream_zero_writes;
 static int8_t s_space_delay[SPACE_DELAY_SAMPLES];
 static uint16_t s_space_delay_index;
+static int16_t s_synth_filter_state[SYNTH_TRACK_COUNT];
+static int16_t s_synth_previous_input[SYNTH_TRACK_COUNT];
 
 static const char *s_track_names[TRACK_COUNT] = { "KICK", "SNARE", "HAT", "RIM" };
 static const GColor s_track_colors[TRACK_COUNT] = {
@@ -109,7 +134,10 @@ static bool play_pattern(void);
 static bool tuple_to_uint32(const Tuple *tuple, uint32_t *value);
 
 static uint8_t active_track_count(void) {
-  return s_page == PageDrums ? TRACK_COUNT : (s_page == PageSynths ? SYNTH_TRACK_COUNT : EFFECT_COUNT);
+  if (s_page == PageDrums) return TRACK_COUNT;
+  if (s_page == PageSynths) return SYNTH_TRACK_COUNT;
+  if (s_page == PageShape) return SHAPE_COUNT;
+  return s_page == PageEffects ? EFFECT_COUNT : ROUTING_EFFECT_COUNT;
 }
 
 static uint16_t *active_patterns(void) {
@@ -227,6 +255,18 @@ static void save_effects(void) {
   persist_write_int(PERSIST_SPACE, s_space);
 }
 
+static void save_synth_shape(void) {
+  persist_write_int(PERSIST_BASS_CUTOFF, s_synth_cutoff[0]);
+  persist_write_int(PERSIST_BASS_BITE, s_synth_bite[0]);
+  persist_write_int(PERSIST_LEAD_CUTOFF, s_synth_cutoff[1]);
+  persist_write_int(PERSIST_LEAD_BITE, s_synth_bite[1]);
+}
+
+static void save_routing(void) {
+  persist_write_int(PERSIST_DRIVE_TARGETS, s_drive_targets);
+  persist_write_int(PERSIST_SPACE_TARGETS, s_space_targets);
+}
+
 static uint8_t *active_effect_value(void) {
   if (s_cursor_track == 0) return &s_volume;
   if (s_cursor_track == 1) return &s_drive;
@@ -239,6 +279,30 @@ static void adjust_active_effect(int8_t amount) {
   *value = next < 0 ? 0 : (next > 100 ? 100 : next);
   if (s_cursor_track == 0 && s_stream_open) speaker_set_volume(s_volume);
   save_effects();
+}
+
+static uint8_t *active_shape_value(void) {
+  if (s_cursor_track == 0) return &s_synth_cutoff[0];
+  if (s_cursor_track == 1) return &s_synth_bite[0];
+  if (s_cursor_track == 2) return &s_synth_cutoff[1];
+  return &s_synth_bite[1];
+}
+
+static void adjust_active_shape(int8_t amount) {
+  uint8_t *value = active_shape_value();
+  int16_t next = *value + amount;
+  *value = next < 0 ? 0 : (next > 100 ? 100 : next);
+  save_synth_shape();
+}
+
+static uint8_t *active_routing_targets(void) {
+  return s_cursor_track == 0 ? &s_drive_targets : &s_space_targets;
+}
+
+static void toggle_active_routing_target(void) {
+  uint8_t *targets = active_routing_targets();
+  *targets ^= 1 << s_cursor_step;
+  save_routing();
 }
 
 static uint16_t next_step_samples(uint16_t *remainder) {
@@ -266,13 +330,32 @@ static int16_t drum_sample(uint8_t track, uint16_t offset) {
   return 0;
 }
 
+static int32_t apply_drive(int32_t sample, bool enabled) {
+  if (!enabled || s_drive == 0) return sample;
+  sample = sample * (100 + s_drive * 2) / 100;
+  int32_t sign = sample < 0 ? -1 : 1;
+  int32_t magnitude = sample < 0 ? -sample : sample;
+  if (magnitude > 180) magnitude = 180 + (magnitude - 180) * 60 / (60 + magnitude - 180);
+  return sign * magnitude;
+}
+
 static int8_t finalize_mix(int32_t mixed) {
-  // Drive raises the mixer gain before the soft limiter adds intentional crunch.
-  int32_t sample = mixed * (100 + s_drive * 2) / 300;
+  int32_t sample = mixed / 300;
   int32_t sign = sample < 0 ? -1 : 1;
   int32_t magnitude = sample < 0 ? -sample : sample;
   if (magnitude > 96) magnitude = 96 + (magnitude - 96) * 31 / (31 + magnitude - 96);
   return clamp_sample(sign * magnitude);
+}
+
+static int16_t filter_synth(uint8_t track, int16_t sample) {
+  // One-pole tone filter plus a tiny high-pass edge: stable at 8 kHz and cheap enough per sample.
+  int16_t previous = s_synth_filter_state[track];
+  uint16_t coefficient = 12 + s_synth_cutoff[track] * 115 / 100;
+  int16_t low = previous + ((sample - previous) * coefficient >> 7);
+  s_synth_filter_state[track] = low;
+  int16_t edge = sample - s_synth_previous_input[track];
+  s_synth_previous_input[track] = sample;
+  return clamp_sample(low + edge * s_synth_bite[track] / 100);
 }
 
 static void render_mix(int8_t *buffer, uint16_t count) {
@@ -281,15 +364,16 @@ static void render_mix(int8_t *buffer, uint16_t count) {
   uint16_t step_length = s_mix_step_length;
   uint16_t remainder = s_mix_step_remainder;
   for (uint16_t i = 0; i < count; i++) {
-    int32_t mixed = 0;
+    int32_t drums = 0;
+    int32_t synths[SYNTH_TRACK_COUNT] = { 0, 0 };
     for (uint8_t track = 0; track < TRACK_COUNT; track++) {
       if (s_drum_pattern[track] & (1 << step)) {
         int32_t voice = drum_sample(track, position);
         // The tiny speaker favors a clear kick attack; keep bright percussion below it.
-        if (track == 0) mixed += voice * 5 / 2;
-        else if (track == 2) mixed += voice * 2 / 3;
-        else if (track == 3) mixed += voice * 3 / 4;
-        else mixed += voice;
+        if (track == 0) drums += voice * 5 / 2;
+        else if (track == 2) drums += voice * 2 / 3;
+        else if (track == 3) drums += voice * 3 / 4;
+        else drums += voice;
       }
     }
     for (uint8_t track = 0; track < SYNTH_TRACK_COUNT; track++) {
@@ -302,13 +386,21 @@ static void render_mix(int8_t *buffer, uint16_t count) {
         uint16_t attack = position < 32 ? position * 4 : 127;
         uint16_t release = position + 16 >= step_length ? (step_length - position) * 8 : 127;
         uint16_t envelope_level = attack < release ? attack : release;
-        mixed += voice * envelope_level / 127;
+        synths[track] += filter_synth(track, voice * envelope_level / 127);
       }
     }
+    drums = apply_drive(drums, s_drive_targets & TARGET_DRUMS);
+    synths[0] = apply_drive(synths[0], s_drive_targets & TARGET_BASS);
+    synths[1] = apply_drive(synths[1], s_drive_targets & TARGET_LEAD);
+    int32_t mixed = drums + synths[0] + synths[1];
     int8_t dry = finalize_mix(mixed);
     int8_t delayed = s_space_delay[s_space_delay_index];
     // A short feedback echo creates space without a CPU-heavy reverb algorithm.
-    s_space_delay[s_space_delay_index] = clamp_sample(dry + delayed * s_space / 160);
+    int8_t space_source = finalize_mix(
+      (s_space_targets & TARGET_DRUMS ? drums : 0) +
+      (s_space_targets & TARGET_BASS ? synths[0] : 0) +
+      (s_space_targets & TARGET_LEAD ? synths[1] : 0));
+    s_space_delay[s_space_delay_index] = clamp_sample(space_source + delayed * s_space / 160);
     buffer[i] = clamp_sample(dry + delayed * s_space / 250);
     s_space_delay_index = (s_space_delay_index + 1) & (SPACE_DELAY_SAMPLES - 1);
     position++;
@@ -400,6 +492,8 @@ static bool play_pattern(void) {
   s_stream_bytes_written = 0;
   s_stream_zero_writes = 0;
   memset(s_space_delay, 0, sizeof(s_space_delay));
+  memset(s_synth_filter_state, 0, sizeof(s_synth_filter_state));
+  memset(s_synth_previous_input, 0, sizeof(s_synth_previous_input));
   s_space_delay_index = 0;
   if (!speaker_stream_open(SpeakerPcmFormat_8kHz_8bit, s_volume)) {
     s_playing = false;
@@ -518,6 +612,70 @@ static void draw_effects(GContext *ctx, GRect bounds) {
   }
 }
 
+static void draw_shape(GContext *ctx, GRect bounds) {
+  static const char *names[SHAPE_COUNT] = { "B CUT", "B BITE", "L CUT", "L BITE" };
+  const uint8_t values[SHAPE_COUNT] = {
+    s_synth_cutoff[0], s_synth_bite[0], s_synth_cutoff[1], s_synth_bite[1]
+  };
+  const int top = 40;
+  const int row_h = (bounds.size.h - top - 8) / SHAPE_COUNT;
+  for (uint8_t shape = 0; shape < SHAPE_COUNT; shape++) {
+    int y = top + shape * row_h;
+    char label[16];
+    snprintf(label, sizeof(label), "%s %u", names[shape], values[shape]);
+    graphics_context_set_text_color(ctx, GColorWhite);
+    graphics_draw_text(ctx, label, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+                       GRect(9, y, 88, 19), GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentLeft, NULL);
+    int bar_left = 98;
+    int bar_width = bounds.size.w - bar_left - 10;
+    graphics_context_set_stroke_color(ctx, GColorLightGray);
+    graphics_draw_rect(ctx, GRect(bar_left, y + 3, bar_width, 11));
+    graphics_context_set_fill_color(ctx, PBL_IF_BW_ELSE(GColorWhite,
+      (shape < 2 ? GColorPurple : GColorVividCerulean)));
+    graphics_fill_rect(ctx, GRect(bar_left + 1, y + 4,
+                                  (bar_width - 2) * values[shape] / 100, 9), 1, GCornersAll);
+    if (shape == s_cursor_track) {
+      graphics_context_set_stroke_color(ctx, GColorWhite);
+      graphics_context_set_stroke_width(ctx, 2);
+      graphics_draw_rect(ctx, GRect(4, y - 2, bounds.size.w - 8, 23));
+    }
+  }
+}
+
+static void draw_routing(GContext *ctx, GRect bounds) {
+  static const char *names[ROUTING_EFFECT_COUNT] = { "DRIVE", "SPACE" };
+  static const char *targets[ROUTING_TARGET_COUNT] = { "D", "B", "L" };
+  const uint8_t masks[ROUTING_EFFECT_COUNT] = { s_drive_targets, s_space_targets };
+  const int top = 48;
+  const int row_h = (bounds.size.h - top - 10) / ROUTING_EFFECT_COUNT;
+  for (uint8_t effect = 0; effect < ROUTING_EFFECT_COUNT; effect++) {
+    int y = top + effect * row_h;
+    graphics_context_set_text_color(ctx, GColorWhite);
+    graphics_draw_text(ctx, names[effect], fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+                       GRect(9, y + 4, 56, 20), GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentLeft, NULL);
+    for (uint8_t target = 0; target < ROUTING_TARGET_COUNT; target++) {
+      int x = 72 + target * 25;
+      bool enabled = masks[effect] & (1 << target);
+      graphics_context_set_stroke_color(ctx, GColorWhite);
+      graphics_draw_rect(ctx, GRect(x, y, 18, 18));
+      if (enabled) {
+        graphics_context_set_fill_color(ctx, PBL_IF_BW_ELSE(GColorWhite,
+          (target == 0 ? GColorJaegerGreen : (target == 1 ? GColorPurple : GColorVividCerulean))));
+        graphics_fill_rect(ctx, GRect(x + 4, y + 4, 10, 10), 1, GCornersAll);
+      }
+      draw_centered(ctx, targets[target], GRect(x, y + 20, 18, 12),
+                    fonts_get_system_font(FONT_KEY_GOTHIC_14), GColorLightGray);
+      if (effect == s_cursor_track && target == s_cursor_step) {
+        graphics_context_set_stroke_color(ctx, GColorWhite);
+        graphics_context_set_stroke_width(ctx, 2);
+        graphics_draw_rect(ctx, GRect(x - 2, y - 2, 22, 22));
+      }
+    }
+  }
+}
+
 static void draw_sequencer(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
   const int top = 36;
@@ -538,8 +696,12 @@ static void draw_sequencer(Layer *layer, GContext *ctx) {
   } else if (s_page == PageSynths) {
     snprintf(header, sizeof(header), "%s %s", active_track_name(s_cursor_track),
              s_synth_note_names[s_cursor_track][s_synth_note_index[s_cursor_track][s_cursor_step]]);
+  } else if (s_page == PageShape) {
+    snprintf(header, sizeof(header), "SYNTH SHAPE");
   } else if (s_page == PageEffects) {
     snprintf(header, sizeof(header), "EFFECTS");
+  } else if (s_page == PageRouting) {
+    snprintf(header, sizeof(header), "FX ROUTING");
   } else {
     snprintf(header, sizeof(header), "DRUM %s %dbpm", active_track_name(s_cursor_track), s_bpm);
   }
@@ -550,13 +712,22 @@ static void draw_sequencer(Layer *layer, GContext *ctx) {
     graphics_context_set_fill_color(ctx, PBL_IF_BW_ELSE(GColorWhite, GColorGreen));
     graphics_fill_circle(ctx, GPoint(bounds.size.w - 7, 9), 3);
   }
-  draw_centered(ctx, s_page == PageEffects ? "UP/DN VALUE  HLD ROW" :
+  draw_centered(ctx, s_page == PageRouting ? "UP/DN TARGET HLD ROW" :
+                         (s_page == PageEffects || s_page == PageShape) ? "UP/DN VALUE  HLD ROW" :
                          (s_page == PageSynths ? "HLD ROW  DBL PITCH" : "HLD ROW  DBL BPM"),
                 GRect(0, 19, bounds.size.w, 15),
                 fonts_get_system_font(FONT_KEY_GOTHIC_14), GColorLightGray);
 
   if (s_page == PageEffects) {
     draw_effects(ctx, bounds);
+    return;
+  }
+  if (s_page == PageShape) {
+    draw_shape(ctx, bounds);
+    return;
+  }
+  if (s_page == PageRouting) {
+    draw_routing(ctx, bounds);
     return;
   }
 
@@ -601,12 +772,21 @@ static void draw_sequencer(Layer *layer, GContext *ctx) {
 
 static void select_click(ClickRecognizerRef recognizer, void *context) {
   if (click_number_of_clicks_counted(recognizer) == 2) {
-    s_page = s_page == PageDrums ? PageSynths : (s_page == PageSynths ? PageEffects : PageDrums);
+    s_page = s_page == PageDrums ? PageSynths :
+             (s_page == PageSynths ? PageShape :
+             (s_page == PageShape ? PageEffects :
+             (s_page == PageEffects ? PageRouting : PageDrums)));
     s_cursor_track = 0;
+    s_cursor_step = 0;
     redraw();
     return;
   }
-  if (s_page == PageEffects) return;
+  if (s_page == PageRouting) {
+    toggle_active_routing_target();
+    redraw();
+    return;
+  }
+  if (s_page == PageEffects || s_page == PageShape) return;
   uint16_t *patterns = active_patterns();
   patterns[s_cursor_track] ^= (1 << s_cursor_step);
   save_state(s_page == PageDrums ? 1 << s_cursor_track : 0,
@@ -620,6 +800,16 @@ static void select_long_click(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void up_click(ClickRecognizerRef recognizer, void *context) {
+  if (s_page == PageRouting) {
+    s_cursor_step = (s_cursor_step + ROUTING_TARGET_COUNT - 1) % ROUTING_TARGET_COUNT;
+    redraw();
+    return;
+  }
+  if (s_page == PageShape) {
+    adjust_active_shape(click_number_of_clicks_counted(recognizer) == 2 ? 10 : 5);
+    redraw();
+    return;
+  }
   if (s_page == PageEffects) {
     adjust_active_effect(click_number_of_clicks_counted(recognizer) == 2 ? 10 : 5);
     redraw();
@@ -643,6 +833,16 @@ static void up_click(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void down_click(ClickRecognizerRef recognizer, void *context) {
+  if (s_page == PageRouting) {
+    s_cursor_step = (s_cursor_step + 1) % ROUTING_TARGET_COUNT;
+    redraw();
+    return;
+  }
+  if (s_page == PageShape) {
+    adjust_active_shape(click_number_of_clicks_counted(recognizer) == 2 ? -10 : -5);
+    redraw();
+    return;
+  }
   if (s_page == PageEffects) {
     adjust_active_effect(click_number_of_clicks_counted(recognizer) == 2 ? -10 : -5);
     redraw();
@@ -733,6 +933,12 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   Tuple *volume = dict_find(iter, MESSAGE_KEY_Volume);
   Tuple *drive = dict_find(iter, MESSAGE_KEY_Drive);
   Tuple *space = dict_find(iter, MESSAGE_KEY_Space);
+  Tuple *bass_cutoff = dict_find(iter, MESSAGE_KEY_BassCutoff);
+  Tuple *bass_bite = dict_find(iter, MESSAGE_KEY_BassBite);
+  Tuple *lead_cutoff = dict_find(iter, MESSAGE_KEY_LeadCutoff);
+  Tuple *lead_bite = dict_find(iter, MESSAGE_KEY_LeadBite);
+  Tuple *drive_targets = dict_find(iter, MESSAGE_KEY_DriveTargets);
+  Tuple *space_targets = dict_find(iter, MESSAGE_KEY_SpaceTargets);
   uint8_t changed_tracks = 0;
   uint8_t changed_synth_tracks = 0;
   bool bpm_changed = false;
@@ -803,6 +1009,32 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     save_effects();
     redraw();
   }
+  bool shape_changed = false;
+  Tuple *shape_tuples[SHAPE_COUNT] = { bass_cutoff, bass_bite, lead_cutoff, lead_bite };
+  uint8_t *shape_values[SHAPE_COUNT] = {
+    &s_synth_cutoff[0], &s_synth_bite[0], &s_synth_cutoff[1], &s_synth_bite[1]
+  };
+  for (uint8_t shape = 0; shape < SHAPE_COUNT; shape++) {
+    if (tuple_to_uint32(shape_tuples[shape], &requested_effect) && requested_effect <= 100 &&
+        *shape_values[shape] != requested_effect) {
+      *shape_values[shape] = requested_effect;
+      shape_changed = true;
+    }
+  }
+  if (shape_changed) save_synth_shape();
+  bool routing_changed = false;
+  if (tuple_to_uint32(drive_targets, &requested_effect) && requested_effect <= TARGET_ALL &&
+      s_drive_targets != requested_effect) {
+    s_drive_targets = requested_effect;
+    routing_changed = true;
+  }
+  if (tuple_to_uint32(space_targets, &requested_effect) && requested_effect <= TARGET_ALL &&
+      s_space_targets != requested_effect) {
+    s_space_targets = requested_effect;
+    routing_changed = true;
+  }
+  if (routing_changed) save_routing();
+  if (shape_changed || routing_changed) redraw();
 }
 
 static void load_state(void) {
@@ -839,6 +1071,18 @@ static void load_state(void) {
   s_volume = stored_volume >= 0 && stored_volume <= 100 ? stored_volume : DEFAULT_VOLUME;
   s_drive = stored_drive >= 0 && stored_drive <= 100 ? stored_drive : 0;
   s_space = stored_space >= 0 && stored_space <= 100 ? stored_space : 0;
+  int stored_bass_cutoff = persist_exists(PERSIST_BASS_CUTOFF) ? persist_read_int(PERSIST_BASS_CUTOFF) : 85;
+  int stored_bass_bite = persist_exists(PERSIST_BASS_BITE) ? persist_read_int(PERSIST_BASS_BITE) : 10;
+  int stored_lead_cutoff = persist_exists(PERSIST_LEAD_CUTOFF) ? persist_read_int(PERSIST_LEAD_CUTOFF) : 95;
+  int stored_lead_bite = persist_exists(PERSIST_LEAD_BITE) ? persist_read_int(PERSIST_LEAD_BITE) : 25;
+  s_synth_cutoff[0] = stored_bass_cutoff >= 0 && stored_bass_cutoff <= 100 ? stored_bass_cutoff : 85;
+  s_synth_bite[0] = stored_bass_bite >= 0 && stored_bass_bite <= 100 ? stored_bass_bite : 10;
+  s_synth_cutoff[1] = stored_lead_cutoff >= 0 && stored_lead_cutoff <= 100 ? stored_lead_cutoff : 95;
+  s_synth_bite[1] = stored_lead_bite >= 0 && stored_lead_bite <= 100 ? stored_lead_bite : 25;
+  int stored_drive_targets = persist_exists(PERSIST_DRIVE_TARGETS) ? persist_read_int(PERSIST_DRIVE_TARGETS) : TARGET_ALL;
+  int stored_space_targets = persist_exists(PERSIST_SPACE_TARGETS) ? persist_read_int(PERSIST_SPACE_TARGETS) : TARGET_ALL;
+  s_drive_targets = stored_drive_targets >= 0 && stored_drive_targets <= TARGET_ALL ? stored_drive_targets : TARGET_ALL;
+  s_space_targets = stored_space_targets >= 0 && stored_space_targets <= TARGET_ALL ? stored_space_targets : TARGET_ALL;
 }
 
 static void init(void) {

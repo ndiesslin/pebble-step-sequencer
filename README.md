@@ -4,7 +4,7 @@
 
 ![Pebble Studio app icon](docs/app-icon.png)
 
-A six-voice, 16-step music-sequencer app for speaker-equipped Pebble watches: a four-voice drum page, Bass/Lead synth page, and an Effects page for Volume, Drive, and Space.
+A six-voice, 16-step music-sequencer app for speaker-equipped Pebble watches: a four-voice drum page, Bass/Lead synth page, Synth Shape filters, and global effects with flexible routing.
 
 [View Pebble Studio on the Pebble Store](https://apps.repebble.com/bec95167d5404fd1934d80fa)
 
@@ -40,9 +40,14 @@ It requires Pebble SDK 4.9 or newer because that is when the Speaker API arrived
 | Hold Up / Hold Down | Previous / next row |
 | Double Up / Double Down | Raise / lower tempo by 5 BPM (or change synth pitch on the Synth page) |
 | Select | Toggle the selected step |
-| Double Select | Switch between Drum, Synth, and Effects pages |
+| Double Select | Switch between Drum, Synth, Synth Shape, Effects, and FX Routing pages |
 | Effects page: Up / Down | Raise / lower the selected effect by 5 (double for 10) |
 | Effects page: Hold Up / Hold Down | Select Volume, Drive, or Space |
+| Synth Shape page: Up / Down | Adjust Bass/Lead Cutoff or Bite (double for 10) |
+| Synth Shape page: Hold Up / Hold Down | Select a shape control |
+| FX Routing page: Up / Down | Select Drums, Bass, or Lead target |
+| FX Routing page: Hold Up / Hold Down | Select Drive or Space |
+| FX Routing page: Select | Toggle the selected target |
 | Hold Select | Start / stop playback |
 | Back | Exit the app |
 
@@ -54,7 +59,7 @@ Every 16-step row is one 4/4 bar. A divider after steps 4, 8, and 12 marks the f
 
 The companion app opens an editor from the app's **Settings** screen in the Pebble mobile app using its saved phone copy, so it remains responsive even when the configuration bridge cannot complete a watch-to-phone state request. The editor can change every value and writes them back one field at a time; each delivered field is paced and retried up to twice. Keep Pebble Studio open while saving.
 
-The Effects page and matching phone sliders provide **Volume** (default 90/100), **Drive** (soft-clipped gain), and **Space** (a short feedback echo). Effects persist on the watch. Space is intentionally a compact echo rather than a CPU-heavy reverb, preserving stable playback on Pebble hardware.
+The Effects page and matching phone sliders provide **Volume** (default 90/100), **Drive** (soft-clipped gain), and **Space** (a short feedback echo). The Synth Shape page adds independent **Cutoff** and **Bite** filters for Bass and Lead. FX Routing lets Drive and Space affect Drums, Bass, and Lead independently; Volume remains a master level. All controls persist on the watch. Space is intentionally a compact echo rather than a CPU-heavy reverb, preserving stable playback on Pebble hardware.
 
 The configuration webview is deployed automatically by the GitHub Pages workflow from `config/` whenever that directory changes. The release build points to `https://ndiesslin.github.io/pebble-studio/`. If the repository is transferred or renamed, update `CONFIG_URL` in `src/pkjs/index.js`, rebuild the `.pbw`, and verify the Settings round trip in the Pebble mobile app. No server or account credentials are needed by the editor.
 

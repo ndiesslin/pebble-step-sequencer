@@ -22,13 +22,15 @@
     .presets button { min-height: 2.6rem; background: #252a33; font-size: .82rem; }
     .presets #clear { background: #632a32; }
     .tempo { display: flex; align-items: center; gap: 1rem; margin: 1.5rem 0; } input { flex: 1; }
+    .routing { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin: -.75rem 0 1.25rem; }
+    .routing label { display: flex; align-items: center; gap: .3rem; color: #d9dfeb; font-size: .85rem; }
     #transport, #close { background: #00a8ff; color: #07121a; font-weight: bold; font-size: 1rem; }
     #transport { margin: .5rem 0; background: #ffc400; }
     #close { margin-top: .5rem; background: #68db91; }
   </style>
 </head>
 <body>
-  <h1>Pebble Studio</h1><p>Edit every sequence, synth pitch, tempo, transport, and effects state.</p>
+  <h1>Pebble Studio</h1><p>Edit sequences, synth pitch and tone, transport, effects, and their routing.</p>
   <p class="notice" id="notice">Keep Pebble Studio open on your watch while saving.</p>
   <div class="presets" id="presets"><button type="button" data-preset="four">Four on the floor</button><button type="button" data-preset="electro">Electro pulse</button><button type="button" data-preset="melody">Melody sketch</button><button id="clear" type="button">Clear all notes</button></div>
   <div id="tracks"></div>
@@ -36,6 +38,14 @@
   <div class="tempo"><label for="volume">Volume <output id="volume-value">90</output></label><input id="volume" type="range" min="0" max="100" step="5" value="90"></div>
   <div class="tempo"><label for="drive">Drive <output id="drive-value">0</output></label><input id="drive" type="range" min="0" max="100" step="5" value="0"></div>
   <div class="tempo"><label for="space">Space <output id="space-value">0</output></label><input id="space" type="range" min="0" max="100" step="5" value="0"></div>
+  <h2>Synth Shape</h2>
+  <div class="tempo"><label for="bass-cutoff">Bass Cutoff <output id="bass-cutoff-value">85</output></label><input id="bass-cutoff" type="range" min="0" max="100" step="5" value="85"></div>
+  <div class="tempo"><label for="bass-bite">Bass Bite <output id="bass-bite-value">10</output></label><input id="bass-bite" type="range" min="0" max="100" step="5" value="10"></div>
+  <div class="tempo"><label for="lead-cutoff">Lead Cutoff <output id="lead-cutoff-value">95</output></label><input id="lead-cutoff" type="range" min="0" max="100" step="5" value="95"></div>
+  <div class="tempo"><label for="lead-bite">Lead Bite <output id="lead-bite-value">25</output></label><input id="lead-bite" type="range" min="0" max="100" step="5" value="25"></div>
+  <h2>Effect Routing</h2><p>Volume remains master; choose which groups receive Drive and Space.</p>
+  <label>Drive</label><div class="routing" id="drive-targets"></div>
+  <label>Space</label><div class="routing" id="space-targets"></div>
   <button id="transport" type="button">Start playback</button><button id="close" type="button">Save &amp; Close</button>
   <script>
     function getParam(name) { var q = location.search.substring(1).split('&'), i, pair; for (i = 0; i < q.length; i++) { pair = q[i].split('='); if (decodeURIComponent(pair[0]) === name) return decodeURIComponent((pair[1] || '').replace(/\+/g, ' ')); } return ''; }
@@ -80,14 +90,29 @@
     setEffectControl(volume, volumeValue, state.Volume, 90);
     setEffectControl(drive, driveValue, state.Drive, 0);
     setEffectControl(space, spaceValue, state.Space, 0);
+    var bassCutoff = document.getElementById('bass-cutoff'), bassCutoffValue = document.getElementById('bass-cutoff-value'), bassBite = document.getElementById('bass-bite'), bassBiteValue = document.getElementById('bass-bite-value'), leadCutoff = document.getElementById('lead-cutoff'), leadCutoffValue = document.getElementById('lead-cutoff-value'), leadBite = document.getElementById('lead-bite'), leadBiteValue = document.getElementById('lead-bite-value');
+    setEffectControl(bassCutoff, bassCutoffValue, state.BassCutoff, 85);
+    setEffectControl(bassBite, bassBiteValue, state.BassBite, 10);
+    setEffectControl(leadCutoff, leadCutoffValue, state.LeadCutoff, 95);
+    setEffectControl(leadBite, leadBiteValue, state.LeadBite, 25);
+    var targetNames = ['Drums', 'Bass', 'Lead'];
+    function buildTargetControls(containerId, mask) {
+      var container = document.getElementById(containerId), result = [], target, label, input;
+      for (target = 0; target < targetNames.length; target++) {
+        label = document.createElement('label'); input = document.createElement('input'); input.type = 'checkbox'; input.checked = (Number(mask) & (1 << target)) !== 0; input.setAttribute('data-target', target); label.appendChild(input); label.appendChild(document.createTextNode(targetNames[target])); container.appendChild(label); result.push(input);
+      }
+      return result;
+    }
+    var driveTargets = buildTargetControls('drive-targets', state.DriveTargets === undefined ? 7 : state.DriveTargets), spaceTargets = buildTargetControls('space-targets', state.SpaceTargets === undefined ? 7 : state.SpaceTargets);
+    function targetMask(inputs) { var mask = 0, target; for (target = 0; target < inputs.length; target++) if (inputs[target].checked) mask |= 1 << target; return mask; }
     playing = Number(state.Transport) === 1;
     var transport = document.getElementById('transport');
     function renderTransport() { transport.textContent = playing ? 'Stop playback' : 'Start playback'; }
     renderTransport(); transport.onclick = function () { playing = !playing; transportTouched = true; renderTransport(); };
     var presets = {
-      four: { patterns: [0x1111, 0x0404, 0x5555, 0x0000, 0x1111, 0x0000], notes: ['0000222200002222', '0000000000000000'], bpm: 120, effects: [90, 0, 10] },
-      electro: { patterns: [0x1001, 0x0404, 0xaaaa, 0x0200, 0x1111, 0x8421], notes: ['0000222203334444', '0246024602460246'], bpm: 130, effects: [95, 45, 25] },
-      melody: { patterns: [0x1111, 0x0404, 0x5555, 0x0000, 0x1111, 0x8421], notes: ['0000333302225555', '0134013401234013'], bpm: 110, effects: [88, 10, 45] }
+      four: { patterns: [0x1111, 0x0404, 0x5555, 0x0000, 0x1111, 0x0000], notes: ['0000222200002222', '0000000000000000'], bpm: 120, effects: [90, 0, 10], shape: [80, 5, 90, 15], routing: [7, 7] },
+      electro: { patterns: [0x1001, 0x0404, 0xaaaa, 0x0200, 0x1111, 0x8421], notes: ['0000222203334444', '0246024602460246'], bpm: 130, effects: [95, 45, 25], shape: [70, 25, 100, 45], routing: [3, 5] },
+      melody: { patterns: [0x1111, 0x0404, 0x5555, 0x0000, 0x1111, 0x8421], notes: ['0000333302225555', '0134013401234013'], bpm: 110, effects: [88, 10, 45], shape: [75, 10, 85, 20], routing: [2, 6] }
     };
     function setButtonActive(target, active) { if (active && !hasClass(target, 'active')) toggleClass(target, 'active'); if (!active && hasClass(target, 'active')) toggleClass(target, 'active'); }
     function applyPreset(preset) {
@@ -105,6 +130,13 @@
         setEffectControl(drive, driveValue, preset.effects[1], 0);
         setEffectControl(space, spaceValue, preset.effects[2], 0);
       }
+      if (preset.shape) {
+        setEffectControl(bassCutoff, bassCutoffValue, preset.shape[0], 85); setEffectControl(bassBite, bassBiteValue, preset.shape[1], 10);
+        setEffectControl(leadCutoff, leadCutoffValue, preset.shape[2], 95); setEffectControl(leadBite, leadBiteValue, preset.shape[3], 25);
+      }
+      if (preset.routing) {
+        for (presetStep = 0; presetStep < 3; presetStep++) { driveTargets[presetStep].checked = (preset.routing[0] & (1 << presetStep)) !== 0; spaceTargets[presetStep].checked = (preset.routing[1] & (1 << presetStep)) !== 0; }
+      }
     }
     document.getElementById('presets').onclick = function (event) {
       var choice = event.target.getAttribute('data-preset');
@@ -112,7 +144,7 @@
     };
     document.getElementById('clear').onclick = function () { applyPreset({ patterns: [0, 0, 0, 0, 0, 0], notes: ['0000000000000000', '0000000000000000'] }); };
     function currentSettings() {
-      var result = { Bpm: Number(bpm.value), Volume: Number(volume.value), Drive: Number(drive.value), Space: Number(space.value) }, rows = tracks.getElementsByClassName('track'), buttons, value, i, j, sequenceRow = 0;
+      var result = { Bpm: Number(bpm.value), Volume: Number(volume.value), Drive: Number(drive.value), Space: Number(space.value), BassCutoff: Number(bassCutoff.value), BassBite: Number(bassBite.value), LeadCutoff: Number(leadCutoff.value), LeadBite: Number(leadBite.value), DriveTargets: targetMask(driveTargets), SpaceTargets: targetMask(spaceTargets) }, rows = tracks.getElementsByClassName('track'), buttons, value, i, j, sequenceRow = 0;
       for (i = 0; i < rows.length; i++) { if (hasClass(rows[i], 'pitch')) continue; buttons = rows[i].getElementsByTagName('button'); value = 0; for (j = 0; j < buttons.length; j++) if (hasClass(buttons[j], 'active')) value |= (1 << Number(buttons[j].getAttribute('data-step'))); result[sequenceRow < 4 ? 'Pattern' + sequenceRow : 'Synth' + (sequenceRow - 4)] = value; sequenceRow++; }
       result.SynthNotes0 = synthNotes[0].join(''); result.SynthNotes1 = synthNotes[1].join('');
       if (transportTouched) result.Transport = playing ? 1 : 0;
@@ -126,7 +158,8 @@
     if (cachedState) {
       var controls = document.getElementsByTagName('button'), control;
       for (var controlIndex = 0; controlIndex < controls.length; controlIndex++) controls[controlIndex].disabled = true;
-      bpm.disabled = volume.disabled = drive.disabled = space.disabled = true;
+      bpm.disabled = volume.disabled = drive.disabled = space.disabled = bassCutoff.disabled = bassBite.disabled = leadCutoff.disabled = leadBite.disabled = true;
+      for (var targetIndex = 0; targetIndex < 3; targetIndex++) { driveTargets[targetIndex].disabled = true; spaceTargets[targetIndex].disabled = true; }
     }
   </script>
 </body>

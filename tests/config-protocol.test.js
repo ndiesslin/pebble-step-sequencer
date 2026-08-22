@@ -17,6 +17,10 @@ assert(/close_speaker_stream/.test(nativeCode) && /speaker_stream_close\(\)/.tes
 assert(/persist_write_data\(PERSIST_SYNTH_NOTES_BLOB_BASE/.test(nativeCode), 'synth note edits should persist as one compact track blob');
 assert(/MESSAGE_KEY_Volume/.test(nativeCode) && /MESSAGE_KEY_Drive/.test(nativeCode) && /MESSAGE_KEY_Space/.test(nativeCode), 'watch should accept all three effect controls');
 assert(/id="volume"/.test(config) && /id="drive"/.test(config) && /id="space"/.test(config), 'editor should expose the three effect sliders');
+assert(/MESSAGE_KEY_BassCutoff/.test(nativeCode) && /MESSAGE_KEY_LeadBite/.test(nativeCode), 'watch should accept per-synth shaping controls');
+assert(/MESSAGE_KEY_DriveTargets/.test(nativeCode) && /MESSAGE_KEY_SpaceTargets/.test(nativeCode), 'watch should accept Drive and Space routing');
+assert(/id="bass-cutoff"/.test(config) && /id="lead-bite"/.test(config), 'editor should expose synth-shape sliders');
+assert(/drive-targets/.test(config) && /space-targets/.test(config), 'editor should expose effect routing checkboxes');
 assert(!/RequestSettings/.test(nativeCode), 'obsolete watch-to-phone settings request should be removed');
 assert(!/settingsRequestPart/.test(pkjs), 'opening Settings should not wait for a second state round-trip');
 assert(/cachedState/.test(config) && /disabled = true/.test(config), 'cached editor must be view-only');
