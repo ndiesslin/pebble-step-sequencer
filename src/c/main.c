@@ -64,6 +64,7 @@ extern uint32_t MESSAGE_KEY_SpaceTargets;
 #define STAGED_CACHE_HEADROOM 8192
 #define STAGED_RENDER_SAMPLES 80
 #define STAGED_RENDER_INTERVAL_MS 15
+#define PLAYING_REDRAW_INTERVAL_MS 40
 #define DEFAULT_VOLUME 90
 
 static Window *s_window;
@@ -94,6 +95,7 @@ static uint8_t s_space_targets;
 static bool s_playing;
 static bool s_audio_error;
 static AppTimer *s_audio_timer;
+static AppTimer *s_redraw_timer;
 static AppTimer *s_loading_sound_timer;
 static AppTimer *s_help_timer;
 static uint8_t s_loading_sound_note;
@@ -250,7 +252,23 @@ static void init_drum_samples(void) {
 
 }
 
-static void redraw(void) { layer_mark_dirty(s_canvas); }
+static void flush_playing_redraw(void *context) {
+  s_redraw_timer = NULL;
+  if (s_canvas) layer_mark_dirty(s_canvas);
+}
+
+static void redraw(void) {
+  if (!s_canvas) return;
+  if (!s_playing) {
+    layer_mark_dirty(s_canvas);
+    return;
+  }
+  // Moving the cursor can generate several clicks in one scheduler slice. Coalesce
+  // those full-grid paints so the 5 ms speaker refill remains the highest priority.
+  if (!s_redraw_timer) {
+    s_redraw_timer = app_timer_register(PLAYING_REDRAW_INTERVAL_MS, flush_playing_redraw, NULL);
+  }
+}
 
 static void play_loading_sound(void *context) {
   static const uint16_t notes[] = { 880, 1175, 1480 };
@@ -1346,6 +1364,7 @@ static void init(void) {
 static void deinit(void) {
   if (s_loading_sound_timer) app_timer_cancel(s_loading_sound_timer);
   if (s_help_timer) app_timer_cancel(s_help_timer);
+  if (s_redraw_timer) app_timer_cancel(s_redraw_timer);
   cancel_staged_loop_cache();
   free(s_loop_pcm);
   s_loop_pcm = NULL;
