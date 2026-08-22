@@ -332,15 +332,13 @@ static int16_t drum_sample(uint8_t track, uint16_t offset) {
 
 static int32_t apply_drive(int32_t sample, bool enabled) {
   if (!enabled || s_drive == 0) return sample;
-  sample = sample * (100 + s_drive * 2) / 100;
-  int32_t sign = sample < 0 ? -1 : 1;
-  int32_t magnitude = sample < 0 ? -sample : sample;
-  if (magnitude > 180) magnitude = 180 + (magnitude - 180) * 60 / (60 + magnitude - 180);
-  return sign * magnitude;
+  // Shift-based gain keeps the per-group routing cheap enough for the 8 kHz deadline.
+  return sample * (64 + s_drive) >> 6;
 }
 
 static int8_t finalize_mix(int32_t mixed) {
-  int32_t sample = mixed / 300;
+  // 109 / 32768 closely matches the earlier /300 headroom without a software divide.
+  int32_t sample = mixed * 109 >> 15;
   int32_t sign = sample < 0 ? -1 : 1;
   int32_t magnitude = sample < 0 ? -sample : sample;
   if (magnitude > 96) magnitude = 96 + (magnitude - 96) * 31 / (31 + magnitude - 96);
@@ -350,12 +348,12 @@ static int8_t finalize_mix(int32_t mixed) {
 static int16_t filter_synth(uint8_t track, int16_t sample) {
   // One-pole tone filter plus a tiny high-pass edge: stable at 8 kHz and cheap enough per sample.
   int16_t previous = s_synth_filter_state[track];
-  uint16_t coefficient = 12 + s_synth_cutoff[track] * 115 / 100;
+  uint16_t coefficient = 12 + s_synth_cutoff[track] + (s_synth_cutoff[track] >> 3);
   int16_t low = previous + ((sample - previous) * coefficient >> 7);
   s_synth_filter_state[track] = low;
   int16_t edge = sample - s_synth_previous_input[track];
   s_synth_previous_input[track] = sample;
-  return clamp_sample(low + edge * s_synth_bite[track] / 100);
+  return clamp_sample(low + (edge * s_synth_bite[track] >> 7));
 }
 
 static void render_mix(int8_t *buffer, uint16_t count) {
@@ -396,10 +394,10 @@ static void render_mix(int8_t *buffer, uint16_t count) {
     int8_t dry = finalize_mix(mixed);
     int8_t delayed = s_space_delay[s_space_delay_index];
     // A short feedback echo creates space without a CPU-heavy reverb algorithm.
-    int8_t space_source = finalize_mix(
-      (s_space_targets & TARGET_DRUMS ? drums : 0) +
-      (s_space_targets & TARGET_BASS ? synths[0] : 0) +
-      (s_space_targets & TARGET_LEAD ? synths[1] : 0));
+    int32_t selected = (s_space_targets & TARGET_DRUMS ? drums : 0) +
+                       (s_space_targets & TARGET_BASS ? synths[0] : 0) +
+                       (s_space_targets & TARGET_LEAD ? synths[1] : 0);
+    int8_t space_source = clamp_sample(selected * 109 >> 15);
     s_space_delay[s_space_delay_index] = clamp_sample(space_source + delayed * s_space / 160);
     buffer[i] = clamp_sample(dry + delayed * s_space / 250);
     s_space_delay_index = (s_space_delay_index + 1) & (SPACE_DELAY_SAMPLES - 1);
