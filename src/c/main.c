@@ -46,6 +46,7 @@ extern uint32_t MESSAGE_KEY_SpaceTargets;
 #define PERSIST_LEAD_DECAY 117
 #define PERSIST_DRIVE_TARGETS 118
 #define PERSIST_SPACE_TARGETS 119
+#define PERSIST_HELP_SEEN 160
 #define MIX_BUFFER_SAMPLES 160
 #define MIX_PRIME_BUFFERS 2
 #define MIX_PUMP_INTERVAL_MS 5
@@ -86,7 +87,9 @@ static bool s_playing;
 static bool s_audio_error;
 static AppTimer *s_audio_timer;
 static AppTimer *s_loading_sound_timer;
+static AppTimer *s_help_timer;
 static uint8_t s_loading_sound_note;
+static bool s_show_help;
 static bool s_stream_open;
 static uint8_t s_mix_step;
 static uint16_t s_mix_step_sample;
@@ -235,6 +238,13 @@ static void play_loading_sound(void *context) {
   speaker_play_tone(notes[s_loading_sound_note], 48, 20, SpeakerWaveformSine);
   uint16_t delay = delays[s_loading_sound_note++];
   if (delay) s_loading_sound_timer = app_timer_register(delay, play_loading_sound, NULL);
+}
+
+static void dismiss_help(void *context) {
+  s_help_timer = NULL;
+  s_show_help = false;
+  persist_write_int(PERSIST_HELP_SEEN, 1);
+  redraw();
 }
 
 static void cancel_audio_timer(void) {
@@ -790,7 +800,8 @@ static void draw_sequencer(Layer *layer, GContext *ctx) {
     graphics_context_set_fill_color(ctx, PBL_IF_BW_ELSE(GColorWhite, GColorGreen));
     graphics_fill_circle(ctx, GPoint(bounds.size.w - 7, 9), 3);
   }
-  draw_centered(ctx, s_loop_cache_dirty ? "CHANGES NEXT START" :
+  draw_centered(ctx, s_show_help ? "HLD SEL:PLAY  2X SEL:PAGE" :
+                         s_loop_cache_dirty ? "CHANGES NEXT START" :
                          s_page == PageRouting ? "UP/DN TARGET HLD ROW" :
                          (s_page == PageEffects || s_page == PageShape) ? "UP/DN VALUE  HLD ROW" :
                          (s_page == PageSynths ? "HLD ROW  DBL PITCH" : "HLD ROW  DBL BPM"),
@@ -980,6 +991,8 @@ static void window_load(Window *window) {
   layer_add_child(root, s_canvas);
   s_loading_sound_note = 0;
   s_loading_sound_timer = app_timer_register(90, play_loading_sound, NULL);
+  s_show_help = !persist_exists(PERSIST_HELP_SEEN);
+  if (s_show_help) s_help_timer = app_timer_register(4000, dismiss_help, NULL);
 }
 
 static void window_unload(Window *window) { layer_destroy(s_canvas); }
@@ -1171,8 +1184,14 @@ static void load_state(void) {
   s_volume = stored_volume >= 0 && stored_volume <= 100 ? stored_volume : DEFAULT_VOLUME;
   s_drive = stored_drive >= 0 && stored_drive <= 100 ? stored_drive : 0;
   s_space = stored_space >= 0 && stored_space <= 100 ? stored_space : 0;
-  s_synth_attack[0] = 10; s_synth_decay[0] = 50;
-  s_synth_attack[1] = 5; s_synth_decay[1] = 65;
+  int stored_bass_attack = persist_exists(PERSIST_BASS_ATTACK) ? persist_read_int(PERSIST_BASS_ATTACK) : 10;
+  int stored_bass_decay = persist_exists(PERSIST_BASS_DECAY) ? persist_read_int(PERSIST_BASS_DECAY) : 50;
+  int stored_lead_attack = persist_exists(PERSIST_LEAD_ATTACK) ? persist_read_int(PERSIST_LEAD_ATTACK) : 5;
+  int stored_lead_decay = persist_exists(PERSIST_LEAD_DECAY) ? persist_read_int(PERSIST_LEAD_DECAY) : 65;
+  s_synth_attack[0] = stored_bass_attack >= 0 && stored_bass_attack <= 100 ? stored_bass_attack : 10;
+  s_synth_decay[0] = stored_bass_decay >= 0 && stored_bass_decay <= 100 ? stored_bass_decay : 50;
+  s_synth_attack[1] = stored_lead_attack >= 0 && stored_lead_attack <= 100 ? stored_lead_attack : 5;
+  s_synth_decay[1] = stored_lead_decay >= 0 && stored_lead_decay <= 100 ? stored_lead_decay : 65;
   int stored_drive_targets = persist_exists(PERSIST_DRIVE_TARGETS) ? persist_read_int(PERSIST_DRIVE_TARGETS) : TARGET_ALL;
   int stored_space_targets = persist_exists(PERSIST_SPACE_TARGETS) ? persist_read_int(PERSIST_SPACE_TARGETS) : TARGET_ALL;
   s_drive_targets = stored_drive_targets >= 0 && stored_drive_targets <= TARGET_ALL ? stored_drive_targets : TARGET_ALL;
@@ -1197,6 +1216,7 @@ static void init(void) {
 
 static void deinit(void) {
   if (s_loading_sound_timer) app_timer_cancel(s_loading_sound_timer);
+  if (s_help_timer) app_timer_cancel(s_help_timer);
   cancel_audio_timer();
   close_speaker_stream();
   speaker_set_finish_callback(NULL, NULL);

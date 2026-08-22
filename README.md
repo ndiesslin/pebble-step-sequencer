@@ -4,7 +4,7 @@
 
 ![Pebble Studio app icon](docs/app-icon.png)
 
-A six-voice, 16-step music-sequencer app for speaker-equipped Pebble watches: a four-voice drum page, Bass/Lead synth page, Synth Shape filters, and global effects with flexible routing.
+A six-voice, 16-step music-sequencer app for speaker-equipped Pebble watches: a four-voice drum page, Bass/Lead synth page with envelopes, and global effects with flexible routing.
 
 [View Pebble Studio on the Pebble Store](https://apps.repebble.com/bec95167d5404fd1934d80fa)
 
@@ -43,7 +43,7 @@ It requires Pebble SDK 4.9 or newer because that is when the Speaker API arrived
 | Double Select | Switch between Drum, Synth, Synth Shape, Effects, and FX Routing pages |
 | Effects page: Up / Down | Raise / lower the selected effect by 5 (double for 10) |
 | Effects page: Hold Up / Hold Down | Select Volume, Drive, or Space |
-| Synth Shape page: Up / Down | Adjust Bass/Lead Cutoff or Resonance (double for 10) |
+| Synth Shape page: Up / Down | Adjust Bass/Lead Attack or Decay (double for 10) |
 | Synth Shape page: Hold Up / Hold Down | Select a shape control |
 | FX Routing page: Up / Down | Select Drums, Bass, or Lead target |
 | FX Routing page: Hold Up / Hold Down | Select Drive or Space |
@@ -51,15 +51,15 @@ It requires Pebble SDK 4.9 or newer because that is when the Speaker API arrived
 | Hold Select | Start / stop playback |
 | Back | Exit the app |
 
-The Drum page uses one-shot 8 kHz PCM samples generated on the watch: red is a pitch-dropping Kick, orange is a noise-and-body Snare, green is a filtered-noise Hi-hat, and blue is a click-and-tone Rim shot. The Synth page uses an audible C4–C5 low-synth layer and C5–C6 Lead, deliberately shifted above the Pebble speaker's weak low end. Double Up/Down changes the selected synth step through a compact C-major scale; the current note appears in the header. Playback uses a streamed PCM mixer, so all four drum voices and both synth voices play together. Each lit cell plays a hit or note; unlit cells are rests. Patterns and tempo persist on the watch. A small green dot (white on Pebble 2) indicates playback; the white outline is the edit cursor.
+The Drum page uses one-shot 8 kHz PCM samples generated on the watch: red is a pitch-dropping Kick, orange is a noise-and-body Snare, green is a filtered-noise Hi-hat, and blue is a click-and-tone Rim shot. The Synth page uses an audible C4–C5 low-synth layer and C5–C6 Lead, deliberately shifted above the Pebble speaker's weak low end. Double Up/Down changes the selected synth step through a compact C-major scale; the current note appears in the header. Before playback, Pebble Studio renders the complete bar into a PCM cache, so all four drum voices and both synth voices play together without putting effects work in the speaker stream. Each lit cell plays a hit or note; unlit cells are rests. Patterns, tempo, envelopes, and effects persist on the watch. A small green dot (white on Pebble 2) indicates playback; the white outline is the edit cursor.
 
 Every 16-step row is one 4/4 bar. A divider after steps 4, 8, and 12 marks the four beats on both the watch and phone editor.
 
 ## Edit from the Pebble mobile app
 
-The companion app opens an editor from the app's **Settings** screen in the Pebble mobile app using its saved phone copy, so it remains responsive even when the configuration bridge cannot complete a watch-to-phone state request. The editor can change every value and writes them back one field at a time; each delivered field is paced and retried up to twice. Keep Pebble Studio open while saving.
+The companion app opens an editor from the app's **Settings** screen in the Pebble mobile app using its saved phone copy, so it remains responsive even when the configuration bridge cannot complete a watch-to-phone state request. Tracks are collapsible to keep the editor compact; tap a synth pitch to raise it one scale note, or press and hold to lower it. The editor can change every value and writes them back one field at a time; each delivered field is paced and retried up to twice. Keep Pebble Studio open while saving.
 
-The Effects page and matching phone sliders provide **Volume** (default 90/100), **Drive** (soft-clipped gain), and **Space** (a short feedback echo). The Synth Shape page adds independent **Cutoff** and **Resonance** filters for Bass and Lead. FX Routing lets Drive and Space affect Drums, Bass, and Lead independently; Volume remains a master level. All controls persist on the watch. Space is intentionally a compact echo rather than a CPU-heavy reverb, preserving stable playback on Pebble hardware.
+The Effects page and matching phone sliders provide **Volume** (default 90/100), **Drive** (soft-clipped gain), and **Space** (a short feedback echo). The Synth Shape page adds independent **Attack** and **Decay** envelopes for Bass and Lead. FX Routing lets Drive and Space affect Drums, Bass, and Lead independently; Volume remains a master level. All controls persist on the watch. Volume updates immediately; pattern, envelope, Drive, Space, and routing changes are rendered the next time playback starts. Space is intentionally a compact echo rather than a CPU-heavy reverb, preserving stable playback on Pebble hardware.
 
 The configuration webview is deployed automatically by the GitHub Pages workflow from `config/` whenever that directory changes. The release build points to `https://ndiesslin.github.io/pebble-studio/`. If the repository is transferred or renamed, update `CONFIG_URL` in `src/pkjs/index.js`, rebuild the `.pbw`, and verify the Settings round trip in the Pebble mobile app. No server or account credentials are needed by the editor.
 
@@ -85,7 +85,7 @@ Use a physical Pebble 2 Duo or Pebble Time 2 for audio. The emulator is useful f
 
 ## Design notes
 
-The app mixes all four drum voices and both synth voices into an 8 kHz PCM stream on the watch. A small queued buffer bridges scheduler jitter and the static playback indicator avoids competing with audio processing. Edits are picked up at the next generated audio buffer rather than restarting the stream. A failed or preempted stream changes the header to `AUDIO ERROR` and stops transport. System speaker mute / Quiet Time applies normally; firmware controls it and this SDK revision does not expose its mute state to the app.
+The app renders all four drum voices and both synth voices into one 16-step, 8 kHz PCM cache before playback begins. The small speaker pump then only copies cached audio, while the beat-rate playback indicator avoids competing with it. Sound-affecting edits mark the cache for the next start instead of interrupting the current loop. A failed or preempted stream changes the header to `AUDIO ERROR` and stops transport. System speaker mute / Quiet Time applies normally; firmware controls it and this SDK revision does not expose its mute state to the app.
 
 ## Sources
 
