@@ -275,24 +275,18 @@ static void save_synth_shape(void) {
 
 static void rebuild_synth_wave_tables(void) {
   for (uint8_t track = 0; track < SYNTH_TRACK_COUNT; track++) {
-    int16_t low = 0;
-    int32_t band = 0;
-    // Cover a genuinely wide audible range: warm/rounded at 0 through the original bright wave at 100.
-    uint16_t coefficient = 2 + s_synth_cutoff[track] * 126 / 100;
-    // Run several cycles to settle the one-pole filter before keeping one seamless period.
-    for (uint16_t sample = 0; sample < 256 * 4; sample++) {
-      uint8_t phase = sample & 0xff;
+    for (uint16_t sample = 0; sample < 256; sample++) {
+      uint8_t phase = sample;
       int16_t triangle = phase < 128 ? (int16_t)phase * 2 - 128 : 383 - (int16_t)phase * 2;
-      int16_t raw = track == 0
+      int16_t bright = track == 0
         ? triangle + (phase & 0x80 ? 28 : -28)
         : (int16_t)phase - 128;
-      // A damped state-variable band stage makes resonance emphasize the cutoff frequency.
-      band += (raw - low) * coefficient >> 7;
-      band = band * (120 - s_synth_bite[track]) / 128;
-      low = clamp_sample(low + band);
-      if (sample >= 256 * 3) {
-        s_synth_wave_table[track][phase] = clamp_sample(low + band * s_synth_bite[track] / 120);
-      }
+      int16_t warm = s_sine[phase >> 2];
+      // Cutoff sweeps unmistakably from a smooth fundamental to the bright source wave.
+      int16_t shaped = (warm * (100 - s_synth_cutoff[track]) + bright * s_synth_cutoff[track]) / 100;
+      // Resonance introduces a centered third-harmonic peak around the selected cutoff character.
+      int16_t resonance = s_sine[((phase * 3) & 0xff) >> 2] * s_synth_bite[track] / 100;
+      s_synth_wave_table[track][phase] = clamp_sample(shaped + resonance);
     }
   }
 }
