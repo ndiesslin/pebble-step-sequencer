@@ -330,30 +330,13 @@ static int16_t drum_sample(uint8_t track, uint16_t offset) {
   return 0;
 }
 
-static int32_t apply_drive(int32_t sample, bool enabled) {
-  if (!enabled || s_drive == 0) return sample;
-  // Shift-based gain keeps the per-group routing cheap enough for the 8 kHz deadline.
-  return sample * (64 + s_drive) >> 6;
-}
-
 static int8_t finalize_mix(int32_t mixed) {
-  // 109 / 32768 closely matches the earlier /300 headroom without a software divide.
-  int32_t sample = mixed * 109 >> 15;
+  // Keep this proven single master limiter in the PCM hot path.
+  int32_t sample = mixed * (100 + s_drive * 2) / 300;
   int32_t sign = sample < 0 ? -1 : 1;
   int32_t magnitude = sample < 0 ? -sample : sample;
   if (magnitude > 96) magnitude = 96 + (magnitude - 96) * 31 / (31 + magnitude - 96);
   return clamp_sample(sign * magnitude);
-}
-
-static int16_t filter_synth(uint8_t track, int16_t sample) {
-  // One-pole tone filter plus a tiny high-pass edge: stable at 8 kHz and cheap enough per sample.
-  int16_t previous = s_synth_filter_state[track];
-  uint16_t coefficient = 12 + s_synth_cutoff[track] + (s_synth_cutoff[track] >> 3);
-  int16_t low = previous + ((sample - previous) * coefficient >> 7);
-  s_synth_filter_state[track] = low;
-  int16_t edge = sample - s_synth_previous_input[track];
-  s_synth_previous_input[track] = sample;
-  return clamp_sample(low + (edge * s_synth_bite[track] >> 7));
 }
 
 static void render_mix(int8_t *buffer, uint16_t count) {
@@ -362,16 +345,15 @@ static void render_mix(int8_t *buffer, uint16_t count) {
   uint16_t step_length = s_mix_step_length;
   uint16_t remainder = s_mix_step_remainder;
   for (uint16_t i = 0; i < count; i++) {
-    int32_t drums = 0;
-    int32_t synths[SYNTH_TRACK_COUNT] = { 0, 0 };
+    int32_t mixed = 0;
     for (uint8_t track = 0; track < TRACK_COUNT; track++) {
       if (s_drum_pattern[track] & (1 << step)) {
         int32_t voice = drum_sample(track, position);
         // The tiny speaker favors a clear kick attack; keep bright percussion below it.
-        if (track == 0) drums += voice * 5 / 2;
-        else if (track == 2) drums += voice * 2 / 3;
-        else if (track == 3) drums += voice * 3 / 4;
-        else drums += voice;
+        if (track == 0) mixed += voice * 5 / 2;
+        else if (track == 2) mixed += voice * 2 / 3;
+        else if (track == 3) mixed += voice * 3 / 4;
+        else mixed += voice;
       }
     }
     for (uint8_t track = 0; track < SYNTH_TRACK_COUNT; track++) {
@@ -384,21 +366,13 @@ static void render_mix(int8_t *buffer, uint16_t count) {
         uint16_t attack = position < 32 ? position * 4 : 127;
         uint16_t release = position + 16 >= step_length ? (step_length - position) * 8 : 127;
         uint16_t envelope_level = attack < release ? attack : release;
-        synths[track] += filter_synth(track, voice * envelope_level / 127);
+        mixed += voice * envelope_level / 127;
       }
     }
-    drums = apply_drive(drums, s_drive_targets & TARGET_DRUMS);
-    synths[0] = apply_drive(synths[0], s_drive_targets & TARGET_BASS);
-    synths[1] = apply_drive(synths[1], s_drive_targets & TARGET_LEAD);
-    int32_t mixed = drums + synths[0] + synths[1];
     int8_t dry = finalize_mix(mixed);
     int8_t delayed = s_space_delay[s_space_delay_index];
     // A short feedback echo creates space without a CPU-heavy reverb algorithm.
-    int32_t selected = (s_space_targets & TARGET_DRUMS ? drums : 0) +
-                       (s_space_targets & TARGET_BASS ? synths[0] : 0) +
-                       (s_space_targets & TARGET_LEAD ? synths[1] : 0);
-    int8_t space_source = clamp_sample(selected * 109 >> 15);
-    s_space_delay[s_space_delay_index] = clamp_sample(space_source + delayed * s_space / 160);
+    s_space_delay[s_space_delay_index] = clamp_sample(dry + delayed * s_space / 160);
     buffer[i] = clamp_sample(dry + delayed * s_space / 250);
     s_space_delay_index = (s_space_delay_index + 1) & (SPACE_DELAY_SAMPLES - 1);
     position++;
