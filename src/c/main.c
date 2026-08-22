@@ -74,6 +74,7 @@ static uint8_t s_cursor_step;
 static uint16_t s_bpm;
 static uint8_t s_volume;
 static uint8_t s_drive;
+static uint16_t s_drive_gain;
 static uint8_t s_space;
 static uint8_t s_synth_cutoff[SYNTH_TRACK_COUNT];
 static uint8_t s_synth_bite[SYNTH_TRACK_COUNT];
@@ -266,6 +267,11 @@ static void save_effects(void) {
   persist_write_int(PERSIST_SPACE, s_space);
 }
 
+static void update_drive_gain(void) {
+  // Q8 gain is prepared outside the PCM loop; 256 is unity and 768 is the maximum 3x drive.
+  s_drive_gain = (100 + s_drive * 2) * 256 / 100;
+}
+
 static void save_synth_shape(void) {
   persist_write_int(PERSIST_BASS_CUTOFF, s_synth_cutoff[0]);
   persist_write_int(PERSIST_BASS_BITE, s_synth_bite[0]);
@@ -310,6 +316,7 @@ static void adjust_active_effect(int8_t amount) {
   int16_t next = *value + amount;
   *value = next < 0 ? 0 : (next > 100 ? 100 : next);
   if (s_cursor_track == 0 && s_stream_open) speaker_set_volume(s_volume);
+  if (s_cursor_track == 1) update_drive_gain();
   save_effects();
 }
 
@@ -359,12 +366,15 @@ static int16_t drum_sample(uint8_t track, uint16_t offset) {
 }
 
 static int8_t finalize_mix(int32_t mixed) {
-  // Keep this proven single master limiter in the PCM hot path.
-  int32_t sample = mixed * (100 + s_drive * 2) / 300;
+  int32_t sample = mixed / 300;
   int32_t sign = sample < 0 ? -1 : 1;
   int32_t magnitude = sample < 0 ? -sample : sample;
   if (magnitude > 96) magnitude = 96 + (magnitude - 96) * 31 / (31 + magnitude - 96);
   return clamp_sample(sign * magnitude);
+}
+
+static int32_t apply_routed_drive(int32_t group, bool enabled) {
+  return enabled ? (group * s_drive_gain >> 8) : group;
 }
 
 static void render_mix(int8_t *buffer, uint16_t count) {
@@ -373,15 +383,17 @@ static void render_mix(int8_t *buffer, uint16_t count) {
   uint16_t step_length = s_mix_step_length;
   uint16_t remainder = s_mix_step_remainder;
   for (uint16_t i = 0; i < count; i++) {
-    int32_t mixed = 0;
+    int32_t drums = 0;
+    int32_t bass = 0;
+    int32_t lead = 0;
     for (uint8_t track = 0; track < TRACK_COUNT; track++) {
       if (s_drum_pattern[track] & (1 << step)) {
         int32_t voice = drum_sample(track, position);
         // The tiny speaker favors a clear kick attack; keep bright percussion below it.
-        if (track == 0) mixed += voice * 5 / 2;
-        else if (track == 2) mixed += voice * 2 / 3;
-        else if (track == 3) mixed += voice * 3 / 4;
-        else mixed += voice;
+        if (track == 0) drums += voice * 5 / 2;
+        else if (track == 2) drums += voice * 2 / 3;
+        else if (track == 3) drums += voice * 3 / 4;
+        else drums += voice;
       }
     }
     for (uint8_t track = 0; track < SYNTH_TRACK_COUNT; track++) {
@@ -392,13 +404,22 @@ static void render_mix(int8_t *buffer, uint16_t count) {
         uint16_t attack = position < 32 ? position * 4 : 127;
         uint16_t release = position + 16 >= step_length ? (step_length - position) * 8 : 127;
         uint16_t envelope_level = attack < release ? attack : release;
-        mixed += voice * envelope_level / 127;
+        if (track == 0) bass += voice * envelope_level / 127;
+        else lead += voice * envelope_level / 127;
       }
     }
+    drums = apply_routed_drive(drums, s_drive_targets & TARGET_DRUMS);
+    bass = apply_routed_drive(bass, s_drive_targets & TARGET_BASS);
+    lead = apply_routed_drive(lead, s_drive_targets & TARGET_LEAD);
+    int32_t mixed = drums + bass + lead;
     int8_t dry = finalize_mix(mixed);
     int8_t delayed = s_space_delay[s_space_delay_index];
     // A short feedback echo creates space without a CPU-heavy reverb algorithm.
-    s_space_delay[s_space_delay_index] = clamp_sample(dry + delayed * s_space / 160);
+    int32_t selected = (s_space_targets & TARGET_DRUMS ? drums : 0) +
+                       (s_space_targets & TARGET_BASS ? bass : 0) +
+                       (s_space_targets & TARGET_LEAD ? lead : 0);
+    int8_t space_source = (s_space_targets == TARGET_ALL) ? dry : clamp_sample(selected / 300);
+    s_space_delay[s_space_delay_index] = clamp_sample(space_source + delayed * s_space / 160);
     buffer[i] = clamp_sample(dry + delayed * s_space / 250);
     s_space_delay_index = (s_space_delay_index + 1) & (SPACE_DELAY_SAMPLES - 1);
     position++;
@@ -997,6 +1018,7 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   }
   if (tuple_to_uint32(drive, &requested_effect) && requested_effect <= 100 && s_drive != requested_effect) {
     s_drive = requested_effect;
+    update_drive_gain();
     effects_changed = true;
   }
   if (tuple_to_uint32(space, &requested_effect) && requested_effect <= 100 && s_space != requested_effect) {
@@ -1071,6 +1093,7 @@ static void load_state(void) {
   int stored_space = persist_exists(PERSIST_SPACE) ? persist_read_int(PERSIST_SPACE) : 0;
   s_volume = stored_volume >= 0 && stored_volume <= 100 ? stored_volume : DEFAULT_VOLUME;
   s_drive = stored_drive >= 0 && stored_drive <= 100 ? stored_drive : 0;
+  update_drive_gain();
   s_space = stored_space >= 0 && stored_space <= 100 ? stored_space : 0;
   int stored_bass_cutoff = persist_exists(PERSIST_BASS_CUTOFF) ? persist_read_int(PERSIST_BASS_CUTOFF) : 85;
   int stored_bass_bite = persist_exists(PERSIST_BASS_BITE) ? persist_read_int(PERSIST_BASS_BITE) : 10;
