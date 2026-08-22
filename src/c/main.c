@@ -486,7 +486,8 @@ static void advance_mix_position(uint16_t count) {
       s_mix_step_sample = 0;
       s_mix_step = (s_mix_step + 1) % STEP_COUNT;
       s_mix_step_length = next_step_samples(&s_mix_step_remainder);
-      step_changed = true;
+      // Redraw once per beat instead of every sixteenth: clear feedback with less UI work.
+      step_changed = (s_mix_step % 4) == 0;
     }
   }
   if (step_changed) redraw();
