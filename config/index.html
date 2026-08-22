@@ -25,14 +25,15 @@
     .tempo { display: flex; align-items: center; gap: 1rem; margin: 1.5rem 0; } input { flex: 1; }
     .routing { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin: -.75rem 0 1.25rem; }
     .routing label { display: flex; align-items: center; gap: .3rem; color: #d9dfeb; font-size: .85rem; }
-    #transport, #close { background: #00a8ff; color: #07121a; font-weight: bold; font-size: 1rem; }
-    #transport { margin: .5rem 0; background: #ffc400; }
+    .transport { display: flex; align-items: center; gap: .65rem; min-height: 3rem; margin: .5rem 0; padding: 0 .8rem; border-radius: .4rem; background: #ffc400; color: #07121a; font-weight: bold; font-size: 1rem; }
+    .transport input { width: 1.3rem; height: 1.3rem; flex: 0 0 auto; }
+    #close { background: #00a8ff; color: #07121a; font-weight: bold; font-size: 1rem; }
     #close { margin-top: .5rem; background: #68db91; }
   </style>
 </head>
 <body>
   <h1>Pebble Studio</h1><p>Edit sequences, synth pitch and tone, transport, effects, and their routing.</p>
-  <p class="notice" id="notice">Keep Pebble Studio open on your watch while saving. Volume is immediate; other sound changes queue for the next bar when memory allows, otherwise restart playback.</p>
+  <p class="notice" id="notice">Keep Pebble Studio open on your watch while saving. Volume is immediate; other sound changes apply when playback starts again.</p>
   <div class="presets" id="presets"><button type="button" data-preset="four">Four on the floor</button><button type="button" data-preset="electro">Electro pulse</button><button type="button" data-preset="melody">Melody sketch</button><button id="clear" type="button">Clear all notes</button></div>
   <div id="tracks"></div>
   <div class="tempo"><label for="bpm">Tempo <output id="tempo-value">120</output> BPM</label><input id="bpm" type="range" min="60" max="240" step="5" value="120"></div>
@@ -47,7 +48,7 @@
   <h2>Effect Routing</h2><p>Volume remains master; choose which groups receive Drive and Space.</p>
   <label>Drive</label><div class="routing" id="drive-targets"></div>
   <label>Space</label><div class="routing" id="space-targets"></div>
-  <button id="transport" type="button">Start playback</button><button id="close" type="button">Save &amp; Close</button>
+  <label class="transport" for="transport"><input id="transport" type="checkbox">Start playback</label><button id="close" type="button">Save &amp; Close</button>
   <script>
     function getParam(name) { var q = location.search.substring(1).split('&'), i, pair; for (i = 0; i < q.length; i++) { pair = q[i].split('='); if (decodeURIComponent(pair[0]) === name) return decodeURIComponent((pair[1] || '').replace(/\+/g, ' ')); } return ''; }
     function hasClass(node, name) { return (' ' + node.className + ' ').indexOf(' ' + name + ' ') !== -1; }
@@ -57,7 +58,7 @@
     for (track = 0; track < 2; track++) { synthNotes[track] = (/^[0-6]{16}$/.test(state['SynthNotes' + track] || '') ? state['SynthNotes' + track] : '0000000000000000').split(''); }
     var cachedState = getParam('source') === 'cached';
     if (cachedState) document.getElementById('notice').textContent = 'Watch unavailable — the saved phone copy is view-only. Close Settings, reconnect the watch, then reopen.';
-    if (getParam('source') === 'phone') document.getElementById('notice').textContent = 'Editing the saved phone copy. Save sends it to Pebble Studio on your open watch. Sound changes queue for the next bar when memory allows.';
+    if (getParam('source') === 'phone') document.getElementById('notice').textContent = 'Editing the saved phone copy. Save sends it to Pebble Studio on your open watch. Sound changes apply when playback starts again.';
     if (getParam('notice')) document.getElementById('notice').textContent = getParam('notice');
     function changePitch(target, amount) { var t = Number(target.getAttribute('data-track')), s = Number(target.getAttribute('data-step')), n = (Number(synthNotes[t][s]) + amount + noteNames[t].length) % noteNames[t].length; synthNotes[t][s] = n; target.textContent = noteNames[t][n]; }
     function clearPitchHold(target) { if (target._pitchTimer) { clearTimeout(target._pitchTimer); target._pitchTimer = null; } }
@@ -123,8 +124,8 @@
     function targetMask(inputs) { var mask = 0, target; for (target = 0; target < inputs.length; target++) if (inputs[target].checked) mask |= 1 << target; return mask; }
     playing = Number(state.Transport) === 1;
     var transport = document.getElementById('transport');
-    function renderTransport() { transport.textContent = playing ? 'Stop playback' : 'Start playback'; }
-    renderTransport(); transport.onclick = function () { playing = !playing; transportTouched = true; renderTransport(); };
+    transport.checked = playing;
+    transport.onchange = function () { playing = transport.checked; transportTouched = true; };
     var presets = {
       four: { patterns: [0x1111, 0x0404, 0x5555, 0x0000, 0x1111, 0x0000], notes: ['0000222200002222', '0000000000000000'], bpm: 120, effects: [90, 0, 10], shape: [80, 5, 90, 15], routing: [7, 7] },
       electro: { patterns: [0x1001, 0x0404, 0xaaaa, 0x0200, 0x1111, 0x8421], notes: ['0000222203334444', '0246024602460246'], bpm: 130, effects: [95, 45, 25], shape: [70, 25, 100, 45], routing: [3, 5] },
@@ -174,7 +175,7 @@
     if (cachedState) {
       var controls = document.getElementsByTagName('button'), control;
       for (var controlIndex = 0; controlIndex < controls.length; controlIndex++) controls[controlIndex].disabled = true;
-      bpm.disabled = volume.disabled = drive.disabled = space.disabled = bassCutoff.disabled = bassBite.disabled = leadCutoff.disabled = leadBite.disabled = true;
+      bpm.disabled = volume.disabled = drive.disabled = space.disabled = bassCutoff.disabled = bassBite.disabled = leadCutoff.disabled = leadBite.disabled = transport.disabled = true;
       for (var targetIndex = 0; targetIndex < 3; targetIndex++) { driveTargets[targetIndex].disabled = true; spaceTargets[targetIndex].disabled = true; }
     }
   </script>
