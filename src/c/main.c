@@ -82,6 +82,8 @@ static uint8_t s_space_targets;
 static bool s_playing;
 static bool s_audio_error;
 static AppTimer *s_audio_timer;
+static AppTimer *s_loading_sound_timer;
+static uint8_t s_loading_sound_note;
 static bool s_stream_open;
 static uint8_t s_mix_step;
 static uint16_t s_mix_step_sample;
@@ -213,6 +215,16 @@ static void init_drum_samples(void) {
 }
 
 static void redraw(void) { layer_mark_dirty(s_canvas); }
+
+static void play_loading_sound(void *context) {
+  static const uint16_t notes[] = { 880, 1175, 1480 };
+  static const uint16_t delays[] = { 70, 70, 0 };
+  s_loading_sound_timer = NULL;
+  if (s_loading_sound_note >= ARRAY_LENGTH(notes) || s_playing) return;
+  speaker_play_tone(notes[s_loading_sound_note], 48, 20, SpeakerWaveformSine);
+  uint16_t delay = delays[s_loading_sound_note++];
+  if (delay) s_loading_sound_timer = app_timer_register(delay, play_loading_sound, NULL);
+}
 
 static void cancel_audio_timer(void) {
   if (s_audio_timer) {
@@ -873,6 +885,8 @@ static void window_load(Window *window) {
   s_canvas = layer_create(layer_get_bounds(root));
   layer_set_update_proc(s_canvas, draw_sequencer);
   layer_add_child(root, s_canvas);
+  s_loading_sound_note = 0;
+  s_loading_sound_timer = app_timer_register(90, play_loading_sound, NULL);
 }
 
 static void window_unload(Window *window) { layer_destroy(s_canvas); }
@@ -1089,6 +1103,7 @@ static void init(void) {
 }
 
 static void deinit(void) {
+  if (s_loading_sound_timer) app_timer_cancel(s_loading_sound_timer);
   cancel_audio_timer();
   close_speaker_stream();
   speaker_set_finish_callback(NULL, NULL);
