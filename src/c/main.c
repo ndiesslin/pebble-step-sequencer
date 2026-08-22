@@ -61,11 +61,19 @@ extern uint32_t MESSAGE_KEY_SpaceTargets;
 #define TARGET_ALL (TARGET_DRUMS | TARGET_BASS | TARGET_LEAD)
 #define SPACE_DELAY_SAMPLES 256
 #define LOOP_MAX_SAMPLES 32000
+#define STAGED_CACHE_HEADROOM 8192
+#define STAGED_RENDER_SAMPLES 80
+#define STAGED_RENDER_INTERVAL_MS 15
 #define DEFAULT_VOLUME 90
 
 static Window *s_window;
 static Layer *s_canvas;
 typedef enum { PageDrums, PageSynths, PageShape, PageEffects, PageRouting } SequencerPage;
+typedef struct {
+  uint8_t step;
+  uint16_t position;
+  uint16_t length;
+} RenderCursor;
 
 static uint16_t s_drum_pattern[TRACK_COUNT];
 static uint16_t s_synth_pattern[SYNTH_TRACK_COUNT];
@@ -98,12 +106,25 @@ static uint16_t s_mix_step_remainder;
 static int8_t s_mix_buffer[MIX_BUFFER_SAMPLES];
 // The full 16-step bar is rendered before playback.  The speaker pump only
 // copies this cache, which keeps the time-critical PCM stream inexpensive.
-static int8_t s_loop_pcm[LOOP_MAX_SAMPLES];
+static int8_t *s_loop_pcm;
+static uint16_t s_loop_capacity;
 static uint16_t s_loop_length;
+static uint16_t s_loop_bpm;
 static uint16_t s_loop_read_index;
 static uint16_t s_step_offsets[STEP_COUNT + 1];
 static bool s_loop_cache_ready;
 static bool s_loop_cache_dirty;
+static int8_t *s_staged_loop_pcm;
+static uint16_t s_staged_loop_length;
+static uint16_t s_staged_step_offsets[STEP_COUNT + 1];
+static int8_t s_staged_space_delay[SPACE_DELAY_SAMPLES];
+static uint16_t s_staged_space_delay_index;
+static RenderCursor s_staged_cursor;
+static uint16_t s_staged_pre_roll_remaining;
+static uint16_t s_staged_rendered;
+static bool s_staged_cache_ready;
+static AppTimer *s_staged_render_timer;
+static AppTimer *s_staged_debounce_timer;
 static uint16_t s_pending_offset;
 static uint16_t s_pending_length;
 static uint8_t s_empty_write_count;
@@ -147,6 +168,7 @@ static const int8_t s_sine[64] = {
 static bool play_pattern(void);
 static bool tuple_to_uint32(const Tuple *tuple, uint32_t *value);
 static void invalidate_loop_cache(void);
+static void queue_staged_loop_cache(void);
 
 static uint8_t active_track_count(void) {
   if (s_page == PageDrums) return TRACK_COUNT;
@@ -350,8 +372,8 @@ static void toggle_active_routing_target(void) {
   invalidate_loop_cache();
 }
 
-static uint16_t next_step_samples(uint16_t *remainder) {
-  const uint16_t denominator = s_bpm * 4;
+static uint16_t next_step_samples_for_bpm(uint16_t bpm, uint16_t *remainder) {
+  const uint16_t denominator = bpm * 4;
   const uint32_t numerator = PCM_SAMPLE_RATE * 60;
   uint16_t samples = numerator / denominator;
   *remainder += numerator % denominator;
@@ -360,6 +382,10 @@ static uint16_t next_step_samples(uint16_t *remainder) {
     samples++;
   }
   return samples;
+}
+
+static uint16_t next_step_samples(uint16_t *remainder) {
+  return next_step_samples_for_bpm(s_bpm, remainder);
 }
 
 static int16_t drum_sample(uint8_t track, uint16_t offset) {
@@ -382,31 +408,26 @@ static int32_t apply_drive(int32_t sample, bool enabled) {
   return soft_limit(sample * (100 + s_drive * 2) / 100);
 }
 
-typedef struct {
-  uint8_t step;
-  uint16_t position;
-  uint16_t length;
-} RenderCursor;
-
-static void advance_render_cursor(RenderCursor *cursor) {
+static void advance_render_cursor(RenderCursor *cursor, const uint16_t offsets[STEP_COUNT + 1]) {
   cursor->position++;
   if (cursor->position >= cursor->length) {
     cursor->step = (cursor->step + 1) % STEP_COUNT;
     cursor->position = 0;
-    cursor->length = s_step_offsets[cursor->step + 1] - s_step_offsets[cursor->step];
+    cursor->length = offsets[cursor->step + 1] - offsets[cursor->step];
   }
 }
 
-static void init_render_cursor(RenderCursor *cursor, uint16_t sample_offset) {
+static void init_render_cursor(RenderCursor *cursor, const uint16_t offsets[STEP_COUNT + 1], uint16_t sample_offset) {
   cursor->step = 0;
-  while (cursor->step < STEP_COUNT - 1 && sample_offset >= s_step_offsets[cursor->step + 1]) {
+  while (cursor->step < STEP_COUNT - 1 && sample_offset >= offsets[cursor->step + 1]) {
     cursor->step++;
   }
-  cursor->position = sample_offset - s_step_offsets[cursor->step];
-  cursor->length = s_step_offsets[cursor->step + 1] - s_step_offsets[cursor->step];
+  cursor->position = sample_offset - offsets[cursor->step];
+  cursor->length = offsets[cursor->step + 1] - offsets[cursor->step];
 }
 
-static int8_t render_cached_sample(RenderCursor *cursor) {
+static int8_t render_cached_sample(RenderCursor *cursor, const uint16_t offsets[STEP_COUNT + 1],
+                                   int8_t delay[SPACE_DELAY_SAMPLES], uint16_t *delay_index) {
   int32_t drums = 0;
   int32_t bass = 0;
   int32_t lead = 0;
@@ -445,15 +466,15 @@ static int8_t render_cached_sample(RenderCursor *cursor) {
   if (s_space_targets & TARGET_DRUMS) send += drums;
   if (s_space_targets & TARGET_BASS) send += bass;
   if (s_space_targets & TARGET_LEAD) send += lead;
-  int8_t delayed = s_space_delay[s_space_delay_index];
+  int8_t delayed = delay[*delay_index];
   if (s_space != 0) {
-    s_space_delay[s_space_delay_index] = clamp_sample(send / 3 + delayed * s_space / 160);
+    delay[*delay_index] = clamp_sample(send / 3 + delayed * s_space / 160);
     dry += delayed * s_space / 250;
   } else {
-    s_space_delay[s_space_delay_index] = 0;
+    delay[*delay_index] = 0;
   }
-  s_space_delay_index = (s_space_delay_index + 1) & (SPACE_DELAY_SAMPLES - 1);
-  advance_render_cursor(cursor);
+  *delay_index = (*delay_index + 1) & (SPACE_DELAY_SAMPLES - 1);
+  advance_render_cursor(cursor, offsets);
   return clamp_sample(soft_limit(dry));
 }
 
@@ -465,6 +486,12 @@ static bool build_loop_cache(void) {
   }
   s_loop_length = s_step_offsets[STEP_COUNT];
   if (s_loop_length == 0 || s_loop_length > LOOP_MAX_SAMPLES) return false;
+  if (s_loop_capacity < s_loop_length) {
+    int8_t *replacement = realloc(s_loop_pcm, s_loop_length);
+    if (!replacement) return false;
+    s_loop_pcm = replacement;
+    s_loop_capacity = s_loop_length;
+  }
   memset(s_space_delay, 0, sizeof(s_space_delay));
   s_space_delay_index = 0;
   // Prime the feedback state from the end of the repeating bar so the cache
@@ -472,10 +499,11 @@ static bool build_loop_cache(void) {
   uint16_t pre_roll = SPACE_DELAY_SAMPLES * 12;
   if (pre_roll > s_loop_length) pre_roll = s_loop_length;
   RenderCursor cursor;
-  init_render_cursor(&cursor, s_loop_length - pre_roll);
-  for (uint16_t i = 0; i < pre_roll; i++) render_cached_sample(&cursor);
-  init_render_cursor(&cursor, 0);
-  for (uint16_t i = 0; i < s_loop_length; i++) s_loop_pcm[i] = render_cached_sample(&cursor);
+  init_render_cursor(&cursor, s_step_offsets, s_loop_length - pre_roll);
+  for (uint16_t i = 0; i < pre_roll; i++) render_cached_sample(&cursor, s_step_offsets, s_space_delay, &s_space_delay_index);
+  init_render_cursor(&cursor, s_step_offsets, 0);
+  for (uint16_t i = 0; i < s_loop_length; i++) s_loop_pcm[i] = render_cached_sample(&cursor, s_step_offsets, s_space_delay, &s_space_delay_index);
+  s_loop_bpm = s_bpm;
   s_loop_cache_ready = true;
   s_loop_cache_dirty = false;
   return true;
@@ -483,6 +511,95 @@ static bool build_loop_cache(void) {
 
 static void invalidate_loop_cache(void) {
   s_loop_cache_dirty = true;
+  if (s_playing) queue_staged_loop_cache();
+}
+
+static void cancel_staged_loop_cache(void) {
+  if (s_staged_render_timer) {
+    app_timer_cancel(s_staged_render_timer);
+    s_staged_render_timer = NULL;
+  }
+  if (s_staged_debounce_timer) {
+    app_timer_cancel(s_staged_debounce_timer);
+    s_staged_debounce_timer = NULL;
+  }
+  if (s_staged_loop_pcm) {
+    free(s_staged_loop_pcm);
+    s_staged_loop_pcm = NULL;
+  }
+  s_staged_cache_ready = false;
+}
+
+static void render_staged_loop_cache(void *context) {
+  s_staged_render_timer = NULL;
+  uint16_t budget = STAGED_RENDER_SAMPLES;
+  while (budget-- > 0 && !s_staged_cache_ready) {
+    if (s_staged_pre_roll_remaining > 0) {
+      render_cached_sample(&s_staged_cursor, s_staged_step_offsets, s_staged_space_delay,
+                           &s_staged_space_delay_index);
+      s_staged_pre_roll_remaining--;
+      if (s_staged_pre_roll_remaining == 0) init_render_cursor(&s_staged_cursor, s_staged_step_offsets, 0);
+    } else {
+      s_staged_loop_pcm[s_staged_rendered++] = render_cached_sample(
+        &s_staged_cursor, s_staged_step_offsets, s_staged_space_delay, &s_staged_space_delay_index);
+      if (s_staged_rendered >= s_staged_loop_length) {
+        s_staged_cache_ready = true;
+        s_loop_cache_dirty = false;
+        redraw();
+      }
+    }
+  }
+  if (!s_staged_cache_ready) {
+    s_staged_render_timer = app_timer_register(STAGED_RENDER_INTERVAL_MS, render_staged_loop_cache, NULL);
+  }
+}
+
+static void begin_staged_loop_cache(void *context) {
+  s_staged_debounce_timer = NULL;
+  if (!s_playing || !s_loop_cache_dirty || s_staged_loop_pcm) return;
+  uint16_t remainder = 0;
+  s_staged_step_offsets[0] = 0;
+  for (uint8_t step = 0; step < STEP_COUNT; step++) {
+    s_staged_step_offsets[step + 1] = s_staged_step_offsets[step] + next_step_samples(&remainder);
+  }
+  s_staged_loop_length = s_staged_step_offsets[STEP_COUNT];
+  // Keep a meaningful heap reserve for the window, AppMessage, and speaker APIs.
+  if (s_staged_loop_length == 0 || s_staged_loop_length > LOOP_MAX_SAMPLES ||
+      heap_bytes_free() < (size_t)s_staged_loop_length + STAGED_CACHE_HEADROOM) return;
+  s_staged_loop_pcm = malloc(s_staged_loop_length);
+  if (!s_staged_loop_pcm) return;
+  memset(s_staged_space_delay, 0, sizeof(s_staged_space_delay));
+  s_staged_space_delay_index = 0;
+  uint16_t pre_roll = SPACE_DELAY_SAMPLES * 12;
+  if (pre_roll > s_staged_loop_length) pre_roll = s_staged_loop_length;
+  s_staged_pre_roll_remaining = pre_roll;
+  s_staged_rendered = 0;
+  init_render_cursor(&s_staged_cursor, s_staged_step_offsets, s_staged_loop_length - pre_roll);
+  s_staged_render_timer = app_timer_register(STAGED_RENDER_INTERVAL_MS, render_staged_loop_cache, NULL);
+  redraw();
+}
+
+static void queue_staged_loop_cache(void) {
+  cancel_staged_loop_cache();
+  // Phone settings arrive field-by-field; wait until the burst settles before capturing a bar.
+  s_staged_debounce_timer = app_timer_register(750, begin_staged_loop_cache, NULL);
+}
+
+static void swap_staged_loop_cache(void) {
+  if (!s_staged_cache_ready || s_loop_read_index != 0 || s_pending_length != 0) return;
+  free(s_loop_pcm);
+  s_loop_pcm = s_staged_loop_pcm;
+  s_loop_capacity = s_staged_loop_length;
+  s_loop_length = s_staged_loop_length;
+  memcpy(s_step_offsets, s_staged_step_offsets, sizeof(s_step_offsets));
+  s_loop_bpm = s_bpm;
+  s_staged_loop_pcm = NULL;
+  s_staged_cache_ready = false;
+  s_mix_step = 0;
+  s_mix_step_sample = 0;
+  s_mix_step_remainder = 0;
+  s_mix_step_length = next_step_samples_for_bpm(s_loop_bpm, &s_mix_step_remainder);
+  redraw();
 }
 
 static void advance_mix_position(uint16_t count) {
@@ -495,7 +612,7 @@ static void advance_mix_position(uint16_t count) {
     if (s_mix_step_sample >= s_mix_step_length) {
       s_mix_step_sample = 0;
       s_mix_step = (s_mix_step + 1) % STEP_COUNT;
-      s_mix_step_length = next_step_samples(&s_mix_step_remainder);
+      s_mix_step_length = next_step_samples_for_bpm(s_loop_bpm, &s_mix_step_remainder);
       // Redraw once per beat instead of every sixteenth: clear feedback with less UI work.
       step_changed = (s_mix_step % 4) == 0;
     }
@@ -505,11 +622,17 @@ static void advance_mix_position(uint16_t count) {
 
 static void prepare_pending_audio(void) {
   if (s_pending_length != 0) return;
+  swap_staged_loop_cache();
   uint16_t first = s_loop_length - s_loop_read_index;
   if (first > MIX_BUFFER_SAMPLES) first = MIX_BUFFER_SAMPLES;
   memcpy(s_mix_buffer, s_loop_pcm + s_loop_read_index, first);
-  if (first < MIX_BUFFER_SAMPLES) {
+  if (first < MIX_BUFFER_SAMPLES && !s_staged_cache_ready) {
     memcpy(s_mix_buffer + first, s_loop_pcm, MIX_BUFFER_SAMPLES - first);
+  } else if (first < MIX_BUFFER_SAMPLES) {
+    // Finish the old bar before swapping in the ready cache on the next write.
+    s_pending_offset = 0;
+    s_pending_length = first;
+    return;
   }
   s_pending_offset = 0;
   s_pending_length = MIX_BUFFER_SAMPLES;
@@ -616,6 +739,10 @@ static void set_playing(bool playing) {
     s_audio_error = false;
     play_pattern();
   } else {
+    if (s_staged_loop_pcm) {
+      cancel_staged_loop_cache();
+      s_loop_cache_dirty = true;
+    }
     cancel_audio_timer();
     s_pending_length = 0;
     close_speaker_stream();
@@ -801,6 +928,8 @@ static void draw_sequencer(Layer *layer, GContext *ctx) {
     graphics_fill_circle(ctx, GPoint(bounds.size.w - 7, 9), 3);
   }
   draw_centered(ctx, s_show_help ? "HLD SEL:PLAY  2X SEL:PAGE" :
+                         s_staged_cache_ready ? "QUEUED NEXT BAR" :
+                         s_staged_loop_pcm ? "PREPARING NEXT BAR" :
                          s_loop_cache_dirty ? "CHANGES NEXT START" :
                          s_page == PageRouting ? "UP/DN TARGET HLD ROW" :
                          (s_page == PageEffects || s_page == PageShape) ? "UP/DN VALUE  HLD ROW" :
@@ -1217,6 +1346,9 @@ static void init(void) {
 static void deinit(void) {
   if (s_loading_sound_timer) app_timer_cancel(s_loading_sound_timer);
   if (s_help_timer) app_timer_cancel(s_help_timer);
+  cancel_staged_loop_cache();
+  free(s_loop_pcm);
+  s_loop_pcm = NULL;
   cancel_audio_timer();
   close_speaker_stream();
   speaker_set_finish_callback(NULL, NULL);
