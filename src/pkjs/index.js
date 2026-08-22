@@ -91,11 +91,17 @@ function sendSettings(settings) {
       // The physical Dev Connection can drop watch-to-phone replies, so pace writes by delivery.
       setTimeout(function () { sendNext(index + 1, 0); }, 180);
     }, function (error) {
-      if (attempt < 2) {
+      // Transport is deliberately last, so it starts the fully saved loop. Give that
+      // final command extra attempts on the occasionally lossy physical Dev Connection.
+      var maxAttempts = index === messages.length - 1 && shouldSendTransport ? 5 : 2;
+      if (attempt < maxAttempts) {
         console.log('Retrying Pebble Studio setting ' + index + ': ' + JSON.stringify(error));
         setTimeout(function () { sendNext(index, attempt + 1); }, 250);
       } else {
         console.log('Unable to save Pebble Studio setting ' + index + ': ' + JSON.stringify(error));
+        // One failed field must not prevent the remaining fields, especially Transport,
+        // from reaching the open watch.
+        setTimeout(function () { sendNext(index + 1, 0); }, 180);
       }
     });
   }
