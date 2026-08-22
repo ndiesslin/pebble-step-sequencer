@@ -276,6 +276,7 @@ static void save_synth_shape(void) {
 static void rebuild_synth_wave_tables(void) {
   for (uint8_t track = 0; track < SYNTH_TRACK_COUNT; track++) {
     int16_t low = 0;
+    int32_t band = 0;
     // Cover a genuinely wide audible range: warm/rounded at 0 through the original bright wave at 100.
     uint16_t coefficient = 2 + s_synth_cutoff[track] * 126 / 100;
     // Run several cycles to settle the one-pole filter before keeping one seamless period.
@@ -285,11 +286,13 @@ static void rebuild_synth_wave_tables(void) {
       int16_t raw = track == 0
         ? triangle + (phase & 0x80 ? 28 : -28)
         : (int16_t)phase - 128;
-      // Bite crossfades toward a pulse wave, adding unmistakable high harmonics without any live DSP.
-      int16_t pulse = phase & 0x80 ? 110 : -110;
-      raw = (raw * (100 - s_synth_bite[track]) + pulse * s_synth_bite[track]) / 100;
-      low += (raw - low) * coefficient >> 7;
-      if (sample >= 256 * 3) s_synth_wave_table[track][phase] = clamp_sample(low);
+      // A damped state-variable band stage makes resonance emphasize the cutoff frequency.
+      band += (raw - low) * coefficient >> 7;
+      band = band * (120 - s_synth_bite[track]) / 128;
+      low = clamp_sample(low + band);
+      if (sample >= 256 * 3) {
+        s_synth_wave_table[track][phase] = clamp_sample(low + band * s_synth_bite[track] / 120);
+      }
     }
   }
 }
@@ -609,7 +612,7 @@ static void draw_effects(GContext *ctx, GRect bounds) {
 }
 
 static void draw_shape(GContext *ctx, GRect bounds) {
-  static const char *names[SHAPE_COUNT] = { "B CUT", "B BITE", "L CUT", "L BITE" };
+  static const char *names[SHAPE_COUNT] = { "B CUT", "B RES", "L CUT", "L RES" };
   const uint8_t values[SHAPE_COUNT] = {
     s_synth_cutoff[0], s_synth_bite[0], s_synth_cutoff[1], s_synth_bite[1]
   };
